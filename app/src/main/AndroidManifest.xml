@@ -1,15 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 차량 정보 -->
     <uses-permission android:name="android.car.permission.CAR_INFO"/>
+    <uses-permission android:name="pleos.car.permission.CAR_INFO"/>
+
+    <!-- 네트워크 (MQTT) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- BLE 스캔 (주차장 비콘 감지, §4.2) -->
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
     <uses-feature
         android:name="android.hardware.type.automotive"
         android:required="true" />
 
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+
     <application
         android:label="Car PayIn"
         android:theme="@style/Theme.AppCompat">
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -18,6 +36,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".RegistrationActivity"
+            android:exported="false" />
+
     </application>
 
 </manifest>

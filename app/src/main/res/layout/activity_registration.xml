@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0D0D"
+    android:orientation="horizontal">
+
+    <!-- 왼쪽: 카드 프리뷰 -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="#0A0A0A">
+
+        <!-- 카드 본체 -->
+        <LinearLayout
+            android:layout_width="280dp"
+            android:layout_height="170dp"
+            android:background="#12144A"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- 카드 상단: 브랜드 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="HYUNDAI"
+                    android:textColor="#CCCCCC"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="VISA"
+                    android:textColor="#FFD700"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.1" />
+
+            </LinearLayout>
+
+            <!-- IC 칩 -->
+            <LinearLayout
+                android:layout_width="36dp"
+                android:layout_height="26dp"
+                android:layout_marginTop="12dp"
+                android:background="#C8A030" />
+
+            <!-- 카드 번호 프리뷰 -->
+            <TextView
+                android:id="@+id/tvCardPreviewNumber"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="•••• •••• •••• ••••"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:letterSpacing="0.12"
+                android:fontFamily="monospace" />
+
+            <!-- 유효기간 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="VALID THRU"
+                        android:textColor="#888888"
+                        android:textSize="7sp"
+                        android:letterSpacing="0.05" />
+
+                    <TextView
+                        android:id="@+id/tvCardPreviewExpiry"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MM/YY"
+                        android:textColor="#CCCCCC"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 카드 하단 상태 -->
+        <TextView
+            android:id="@+id/tvKeyStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="보안키 생성 중..."
+            android:textColor="#555555"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvRegVin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="VIN: -"
+            android:textColor="#444444"
+            android:textSize="10sp" />
+
+    </LinearLayout>
+
+    <!-- 오른쪽: 입력 폼 -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp">
+
+        <!-- 헤더 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
+
+            <Button
+                android:id="@+id/btnBack"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:text="←"
+                android:textColor="#888888"
+                android:textSize="20sp"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="카드 등록"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="현대카드 정보를 입력하세요"
+                    android:textColor="#666666"
+                    android:textSize="10sp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 카드번호 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="카드번호"
+            android:textColor="#888888"
+            android:textSize="11sp"
+            android:letterSpacing="0.05" />
+
+        <EditText
+            android:id="@+id/etCardNumber"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:background="#1A1A1A"
+            android:hint="0000 0000 0000 0000"
+            android:textColorHint="#3A3A3A"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:padding="12dp"
+            android:inputType="number"
+            android:maxLength="16"
+            android:fontFamily="monospace" />
+
+        <!-- 유효기간 + CVC -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="14dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginEnd="8dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="유효기간"
+                    android:textColor="#888888"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/etCardExpiry"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="#1A1A1A"
+                    android:hint="MM/YY"
+                    android:textColorHint="#3A3A3A"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:padding="12dp"
+                    android:inputType="phone"
+                    android:maxLength="5"
+                    android:fontFamily="monospace" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="8dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="CVC"
+                    android:textColor="#888888"
+                    android:textSize="11sp" />
+
+                <EditText
+                    android:id="@+id/etCardCvc"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="#1A1A1A"
+                    android:hint="•••"
+                    android:textColorHint="#3A3A3A"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:padding="12dp"
+                    android:inputType="numberPassword"
+                    android:maxLength="3" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- 등록 버튼 -->
+        <Button
+            android:id="@+id/btnRegister"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="22dp"
+            android:background="#00AA55"
+            android:text="등록하기"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- 보안 안내 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="🔒  카드 정보는 AES-GCM 암호화 후 전송됩니다"
+            android:textColor="#444444"
+            android:textSize="10sp"
+            android:gravity="center" />
+
+    </LinearLayout>
+
+</LinearLayout>
