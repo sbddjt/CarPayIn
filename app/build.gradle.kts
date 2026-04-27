@@ -43,12 +43,15 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    // Android Car API (VIN 읽기)
+    // Android Car API (VIN / GEAR_SELECTION / IGNITION_STATE 읽기)
     compileOnly(files("C:/Users/USER/AppData/Local/Android/Sdk/platforms/android-34/optional/android.car.jar"))
 
     // Vehicle SDK (Pleos)
     implementation("ai.pleos.playground:Vehicle:2.0.3")
 
-    // MQTT 클라이언트
+    // MQTT 클라이언트 (입차 확정 / 결제 완료 푸시 수신)
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+
+    // EncryptedSharedPreferences (토큰 / payment_method_id / 주차 상태 보안 저장)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

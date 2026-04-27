@@ -2,487 +2,300 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="#080C10"
-    android:orientation="vertical">
+    android:padding="20dp">
 
-    <!-- ── 헤더 ── -->
-    <LinearLayout
-        android:id="@+id/headerArea"
+    <RelativeLayout
+        android:id="@+id/tvHeaderTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="24dp"
-        android:paddingEnd="24dp"
-        android:paddingTop="18dp"
-        android:paddingBottom="14dp">
+        android:layout_marginBottom="24dp">
 
-        <LinearLayout
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:text="Car PayIn"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_centerVertical="true"/>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CAR PAY-IN"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.15" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Hyundai AutoEver"
-                android:textColor="#3A5070"
-                android:textSize="10sp"
-                android:letterSpacing="0.05" />
-
-        </LinearLayout>
-
-        <!-- 연결 상태 도트 — 5초 꾹 누르면 개발자 메뉴 -->
-        <LinearLayout
-            android:id="@+id/devTriggerArea"
-            android:layout_width="36dp"
+        <Button
+            android:id="@+id/btnResetApp"
+            android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:gravity="center"
-            android:clickable="true"
-            android:longClickable="false"
-            android:focusable="true">
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:background="#1A2535"
+            android:text="등록 해제"
+            android:textColor="#FF6B6B"
+            android:textSize="12sp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:visibility="gone"/>
+    </RelativeLayout>
 
-            <TextView
-                android:id="@+id/tvStatusDot"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:background="@drawable/bg_status_ring"
-                android:gravity="center"
-                android:textColor="#444444"
-                android:textSize="8sp" />
+    <LinearLayout
+        android:id="@+id/layoutUnregistered"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="visible">
 
-        </LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="등록된 결제 수단이 없습니다"
+            android:textColor="#888888"
+            android:layout_marginBottom="20dp"/>
 
+        <Button
+            android:id="@+id/btnRegister"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:background="#00E87A"
+            android:text="결제 카드 등록하기"
+            android:textColor="#000000"
+            android:textStyle="bold"/>
     </LinearLayout>
 
-    <!-- 구분선 -->
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#0F1825"
-        android:layout_marginStart="24dp"
-        android:layout_marginEnd="24dp" />
-
-    <!-- ── 스크롤 콘텐츠 ── -->
     <ScrollView
+        android:id="@+id/layoutRegistered"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:overScrollMode="never">
+        android:layout_height="match_parent"
+        android:scrollbars="none"
+        android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="24dp">
+            android:orientation="vertical">
 
-            <!-- ════════════════════════════════════
-                 미등록 상태
-            ════════════════════════════════════ -->
             <LinearLayout
-                android:id="@+id/layoutUnregistered"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:paddingTop="32dp"
-                android:visibility="gone">
-
-                <!-- 아이콘 -->
-                <LinearLayout
-                    android:layout_width="96dp"
-                    android:layout_height="96dp"
-                    android:background="@drawable/bg_card_dark"
-                    android:gravity="center">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="⊘"
-                        android:textColor="#2A3A4A"
-                        android:textSize="42sp" />
-
-                </LinearLayout>
-
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
                 <TextView
+                    android:id="@+id/tvStatusDot"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="22dp"
-                    android:text="카드 미등록"
+                    android:text="●"
+                    android:textColor="#00FF88"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="8dp"/>
+                <TextView
+                    android:id="@+id/tvPaymentStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="주차장 접근 시 자동 결제됩니다"
+                    android:textColor="#CCCCCC"
+                    android:textSize="13sp"/>
+                <TextView
+                    android:id="@+id/tvParkingBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="미주차"
+                    android:textColor="#556677"
+                    android:background="#111820"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:textSize="11sp"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/mainCardBody"
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:orientation="vertical"
+                android:padding="20dp"
+                android:background="#1A1A2E"
+                android:elevation="8dp"
+                android:layout_marginBottom="12dp">
+
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+                    <TextView
+                        android:id="@+id/mainCardBrand"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="HYUNDAI"
+                        android:textColor="#CCCCCC"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.2"/>
+                    <TextView
+                        android:id="@+id/mainCardNetwork"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:text="VISA"
+                        android:textColor="#FFD700"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                </RelativeLayout>
+
+                <View
+                    android:layout_width="40dp"
+                    android:layout_height="30dp"
+                    android:background="#C8A030"
+                    android:layout_marginTop="16dp"/>
+
+                <TextView
+                    android:id="@+id/mainCardNumber"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="•••• •••• •••• ••••"
                     android:textColor="#FFFFFF"
-                    android:textSize="22sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="현대카드를 등록하면\n주차장 입출차 시 자동으로 결제됩니다"
-                    android:textColor="#4A6070"
-                    android:textSize="13sp"
-                    android:gravity="center"
-                    android:lineSpacingExtra="3dp" />
-
-                <!-- 등록 카드 배너 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_card"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="18dp"
-                    android:layout_marginTop="32dp">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="자동결제 시작하기"
-                            android:textColor="#FFFFFF"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="3dp"
-                            android:text="현대카드 등록 후 주차 걱정 없이"
-                            android:textColor="#3A5070"
-                            android:textSize="11sp" />
-
-                    </LinearLayout>
-
-                    <Button
-                        android:id="@+id/btnRegister"
-                        android:layout_width="90dp"
-                        android:layout_height="40dp"
-                        android:background="@drawable/bg_btn_green"
-                        android:text="등록"
-                        android:textColor="#FFFFFF"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-
-                </LinearLayout>
-
-                <!-- 특징 설명 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="14dp">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:background="@drawable/bg_card_dark"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="14dp"
-                        android:layout_marginEnd="7dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="🚗"
-                            android:textSize="22sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:text="VIN 자동인식"
-                            android:textColor="#AAAAAA"
-                            android:textSize="11sp"
-                            android:gravity="center" />
-
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:background="@drawable/bg_card_dark"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="14dp"
-                        android:layout_marginStart="7dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="💳"
-                            android:textSize="22sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:text="터치 없이 결제"
-                            android:textColor="#AAAAAA"
-                            android:textSize="11sp"
-                            android:gravity="center" />
-
-                    </LinearLayout>
-
-                </LinearLayout>
-
+                    android:textSize="18sp"
+                    android:letterSpacing="0.1"
+                    android:fontFamily="monospace"/>
             </LinearLayout>
 
-            <!-- ════════════════════════════════════
-                 등록 완료 상태
-            ════════════════════════════════════ -->
+            <Button
+                android:id="@+id/btnChangeCard"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="#111820"
+                android:text="다른 카드로 변경"
+                android:textColor="#FFFFFF"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="내 차량 정보"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp"/>
             <LinearLayout
-                android:id="@+id/layoutRegistered"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="#111820"
+                android:padding="16dp"
+                android:layout_marginBottom="24dp">
+                <TextView
+                    android:id="@+id/tvPlateNumber"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="123가4567"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+                <TextView
+                    android:id="@+id/tvVinShort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="VIN: KMH•••"
+                    android:textColor="#556677"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layoutParkingActive"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
+                android:background="#1A2535"
+                android:padding="16dp"
+                android:layout_marginBottom="24dp"
                 android:visibility="gone">
+                <TextView
+                    android:id="@+id/tvActiveLotName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="주차장 이름"
+                    android:textColor="#00FF88"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp"/>
 
-                <!-- 상태 원형 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="20dp">
-
-                    <!-- 외곽 링 -->
-                    <LinearLayout
-                        android:layout_width="130dp"
-                        android:layout_height="130dp"
-                        android:background="@drawable/bg_status_ring"
-                        android:gravity="center">
-
-                        <!-- 내부 원 -->
-                        <LinearLayout
-                            android:layout_width="100dp"
-                            android:layout_height="100dp"
-                            android:background="@drawable/bg_card_dark"
-                            android:gravity="center">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="✓"
-                                android:textColor="#00E87A"
-                                android:textSize="44sp"
-                                android:textStyle="bold" />
-
-                        </LinearLayout>
-
-                    </LinearLayout>
-
+                    android:orientation="horizontal">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
-                        android:text="결제 준비 완료"
+                        android:text="주차 시간"
+                        android:textColor="#AAAAAA"/>
+                    <TextView
+                        android:id="@+id/tvParkingTimer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="00:00:00"
                         android:textColor="#FFFFFF"
-                        android:textSize="20sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvPaymentStatus"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="5dp"
-                        android:text="주차장 접근 시 자동 결제됩니다"
-                        android:textColor="#3A5070"
-                        android:textSize="12sp" />
-
+                        android:gravity="end"
+                        android:fontFamily="monospace"/>
                 </LinearLayout>
 
-                <!-- 정보 카드 -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_card"
-                    android:orientation="vertical"
-                    android:padding="18dp">
-
-                    <!-- 등록 카드 행 -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="💳"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:text="등록 카드"
-                            android:textColor="#3A5070"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="HYUNDAI CARD"
-                            android:textColor="#8899AA"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                    </LinearLayout>
-
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="#0F1825"
-                        android:layout_marginTop="14dp"
-                        android:layout_marginBottom="14dp" />
-
-                    <!-- VIN 행 -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="🚗"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:text="차량 VIN"
-                            android:textColor="#3A5070"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:id="@+id/tvVinShort"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="KMHXX••••••••"
-                            android:textColor="#00E87A"
-                            android:textSize="12sp"
-                            android:fontFamily="monospace" />
-
-                    </LinearLayout>
-
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="#0F1825"
-                        android:layout_marginTop="14dp"
-                        android:layout_marginBottom="14dp" />
-
-                    <!-- 보안 행 -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="🔒"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="10dp"
-                            android:text="보안"
-                            android:textColor="#3A5070"
-                            android:textSize="12sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="ECDSA P-256"
-                            android:textColor="#1A4A30"
-                            android:textSize="12sp" />
-
-                    </LinearLayout>
-
-                </LinearLayout>
-
-                <!-- 카드 변경 버튼 -->
-                <Button
-                    android:id="@+id/btnChangeCard"
-                    android:layout_width="match_parent"
-                    android:layout_height="46dp"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/bg_btn_dark"
-                    android:text="카드 변경"
-                    android:textColor="#3A5070"
-                    android:textSize="13sp" />
-
-                <!-- 거래 내역 헤더 -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="28dp"
-                    android:layout_marginBottom="10dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="최근 결제 내역"
-                        android:textColor="#8899AA"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-
+                    android:layout_marginTop="8dp">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="자동결제 전용"
-                        android:textColor="#1A3A28"
-                        android:textSize="10sp" />
-
+                        android:text="예상 요금"
+                        android:textColor="#AAAAAA"/>
+                    <TextView
+                        android:id="@+id/tvParkingEstFee"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="0원"
+                        android:textColor="#FFFFFF"
+                        android:gravity="end"/>
                 </LinearLayout>
 
-                <!-- 거래 내역 컨테이너 -->
-                <LinearLayout
-                    android:id="@+id/layoutTxHistory"
+                <Button
+                    android:id="@+id/btnSettleNow"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_card_dark"
-                    android:orientation="vertical"
-                    android:padding="16dp" />
-
+                    android:layout_height="48dp"
+                    android:layout_marginTop="16dp"
+                    android:background="#00E87A"
+                    android:text="지금 정산하기"
+                    android:textColor="#000000"
+                    android:textStyle="bold"/>
             </LinearLayout>
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="근처 제휴 주차장"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp"/>
+            <LinearLayout
+                android:id="@+id/layoutParkingLots"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="24dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="최근 결제 내역"
+                android:textColor="#888888"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp"/>
+            <LinearLayout
+                android:id="@+id/layoutTxHistory"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="40dp"/>
         </LinearLayout>
     </ScrollView>
-
 </LinearLayout>
