@@ -296,9 +296,9 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:background="?android:attr/selectableItemBackground"
-            android:text="등록 중단"
-            android:textColor="#333333"
-            android:textSize="12sp"/>
+            android:text="← 등록 중단"
+            android:textColor="#778899"
+            android:textSize="13sp"/>
     </LinearLayout>
 
     <WebView
