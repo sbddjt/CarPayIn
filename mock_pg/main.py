@@ -255,7 +255,6 @@ async function submitCard() {
             // Android WebView JS 인터페이스 호출
             if (window.Android) {
                 window.Android.onRegistrationComplete(
-                    data.customer_key,
                     data.order_id,
                     data.last_four,
                     selected.name

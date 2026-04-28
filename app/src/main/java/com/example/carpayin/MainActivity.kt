@@ -1,7 +1,7 @@
 package com.example.carpayin
 
-import android.app.Activity
-import android.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -17,7 +17,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
 
     private val TAG = "CarPayIn"
     private val handler = Handler(Looper.getMainLooper())

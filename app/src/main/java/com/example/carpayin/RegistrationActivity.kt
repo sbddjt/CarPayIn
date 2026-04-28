@@ -261,7 +261,8 @@ class RegistrationActivity : Activity() {
 
         // 에뮬레이터(Pleos Connect): Mock 카드 입력 화면 사용
         // 실서버 연동 시 → createSessionAndOpenPgWebView() 로 교체
-        showCardInputState()
+        // showCardInputState()
+        createSessionAndOpenPgWebView()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -275,45 +276,26 @@ class RegistrationActivity : Activity() {
         tvRegVin.text   = "VIN: ${vin.take(5)}•••••••••••"
         tvRegPlate.text = "번호판: $plate"
 
-        // 카드사 선택기 초기화 (기본: 현대카드)
+        // 1. 기존 입력 필드들 숨기기 (UI에서 입력받지 않음)
+        etCardNumber.visibility = View.GONE
+        etCardExpiry.visibility = View.GONE
+        etCardCvc.visibility    = View.GONE
+        findViewById<TextView>(R.id.tvKeyStatus).visibility = View.GONE
+
+        // 2. 카드사 선택기 초기화 및 적용
         setupCardBrandSelector()
         applyCardBrand(selectedBrand)
 
+        // 3. 취소 버튼 로직 (기존과 동일)
         btnCardCancel.setOnClickListener {
-            AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-                .setTitle("등록 취소")
-                .setMessage("카드 등록을 취소하시겠습니까?")
-                .setPositiveButton("취소하기") { _, _ ->
-                    setResult(RESULT_CANCELED)
-                    finish()
-                }
-                .setNegativeButton("계속 등록", null)
-                .show()
+            confirmCancel()
         }
 
+        // 4. 등록 버튼(btnCardRegister) 클릭 시 바로 웹뷰 세션 생성으로 진입
+        btnCardRegister.text = "카드사 연결하기" // 버튼 텍스트 변경
         btnCardRegister.setOnClickListener {
-            val cardNumber = etCardNumber.text.toString().trim()
-            val cardExpiry = etCardExpiry.text.toString().trim()
-            val cardCvc    = etCardCvc.text.toString().trim()
-
-            // 유효성 검사
-            if (cardNumber.length < 16) {
-                shake(etCardNumber)
-                Toast.makeText(this, "카드번호 16자리를 입력하세요", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (!cardExpiry.matches(Regex("\\d{2}/\\d{2}"))) {
-                shake(etCardExpiry)
-                Toast.makeText(this, "유효기간을 MM/YY 형식으로 입력하세요", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            if (cardCvc.length < 3) {
-                shake(etCardCvc)
-                Toast.makeText(this, "CVC 3자리를 입력하세요", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            performCardRegistration(cardNumber, cardExpiry, cardCvc)
+            // 현재 선택된 브랜드의 이름(예: HYUNDAI)을 넘겨줌
+            OpenPgWebView(selectedBrand.shortName)
         }
     }
 
@@ -321,24 +303,27 @@ class RegistrationActivity : Activity() {
     // 단계 4-B: order_id 생성 → Mock PG WebView 열기
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun createSessionAndOpenPgWebView() {
+    // brand 파라미터 추가
+    private fun createSessionAndOpenPgWebView(brand: String) {
         showLoadingState("카드 등록 준비 중...", "결제 세션 생성")
 
         Thread {
             try {
                 val token = ParkingStateManager.getAccessToken(this) ?: ""
                 val orderResult = ApiManager.createCardRegistrationSession(vin, token)
-                handler.post { openPgWebView(orderResult.orderId) }
+                handler.post {
+                    // 생성된 orderId와 선택한 brand 정보를 웹뷰 함수로 전달
+                    openPgWebView(orderResult.orderId, brand)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "세션 생성 실패: ${e.message}")
-                handler.post { showError("세션 생성 실패", "${e.javaClass.simpleName}\n재시도 해주세요") }
+                handler.post { showError("세션 생성 실패", "재시도 해주세요") }
             }
         }.start()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun openPgWebView(orderId: String) {
-        // 로딩/카드입력 화면 숨기고 WebView 전면 표시
+    private fun openPgWebView(orderId: String, brand: String) { // brand 파라미터 추가
         layoutRegLoading.visibility   = View.GONE
         layoutRegCardInput.visibility = View.GONE
         webView.visibility            = View.VISIBLE
@@ -348,17 +333,10 @@ class RegistrationActivity : Activity() {
             domStorageEnabled = true
         }
 
-        // Android ↔ JavaScript 브릿지
         webView.addJavascriptInterface(PgJsInterface(orderId), "Android")
 
-        webView.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView?, url: String?) {
-                Log.d(TAG, "PG WebView 로드 완료: $url")
-            }
-        }
-
-        // 에뮬레이터에서 호스트 PC localhost = 10.0.2.2
-        val pgUrl = "http://10.0.2.2:8000/card-register?order_id=$orderId"
+        // 쿼리 파라미터에 brand를 추가하여 파이썬 서버가 어떤 카드사인지 알 수 있게 함
+        val pgUrl = "http://10.0.2.2:8000/card-register?order_id=$orderId&brand=$brand"
         Log.d(TAG, "PG WebView URL: $pgUrl")
         webView.loadUrl(pgUrl)
     }

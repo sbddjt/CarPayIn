@@ -129,107 +129,13 @@
                     android:orientation="horizontal"/>
             </HorizontalScrollView>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="카드번호"
-                android:textColor="#888888"
-                android:textSize="11sp"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="6dp"/>
-
-            <EditText
-                android:id="@+id/etCardNumber"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_input"
-                android:inputType="number"
-                android:maxLength="16"
-                android:textColor="#FFFFFF"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:hint="0000 0000 0000 0000"
-                android:textColorHint="#2A3A4A"
-                android:fontFamily="monospace"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="유효기간"
-                        android:textColor="#888888"
-                        android:textSize="11sp"
-                        android:layout_marginBottom="6dp"/>
-                    <EditText
-                        android:id="@+id/etCardExpiry"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:background="@drawable/bg_input"
-                        android:inputType="date"
-                        android:maxLength="5"
-                        android:textColor="#FFFFFF"
-                        android:paddingStart="14dp"
-                        android:paddingEnd="14dp"
-                        android:hint="MM/YY"
-                        android:textColorHint="#2A3A4A"/>
-                </LinearLayout>
-
-                <View android:layout_width="12dp" android:layout_height="0dp"/>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="CVC"
-                        android:textColor="#888888"
-                        android:textSize="11sp"
-                        android:layout_marginBottom="6dp"/>
-                    <EditText
-                        android:id="@+id/etCardCvc"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:background="@drawable/bg_input"
-                        android:inputType="numberPassword"
-                        android:maxLength="3"
-                        android:textColor="#FFFFFF"
-                        android:paddingStart="14dp"
-                        android:paddingEnd="14dp"
-                        android:hint="•••"
-                        android:textColorHint="#2A3A4A"/>
-                </LinearLayout>
-            </LinearLayout>
-
-            <TextView
-                android:id="@+id/tvKeyStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="보안키 확인 중..."
-                android:textColor="#555555"
-                android:textSize="10sp"
-                android:gravity="center"/>
-
             <Button
                 android:id="@+id/btnCardRegister"
                 android:layout_width="match_parent"
                 android:layout_height="54dp"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="32dp"
                 android:background="@drawable/bg_btn_green"
-                android:text="등록하기"
+                android:text="카드사 연결하기"
                 android:textColor="#000000"
                 android:textStyle="bold"
                 android:textSize="16sp"/>
