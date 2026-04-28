@@ -129,6 +129,77 @@
                     android:orientation="horizontal"/>
             </HorizontalScrollView>
 
+            <!-- 카드 직접 입력 필드 (WebView 대체 입력용) -->
+            <TextView
+                android:id="@+id/tvKeyStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="4dp"
+                android:text="🔐 보안키 확인 완료"
+                android:textColor="#00AA55"
+                android:textSize="11sp"
+                android:visibility="gone"/>
+
+            <EditText
+                android:id="@+id/etCardNumber"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_input"
+                android:hint="카드번호 16자리"
+                android:inputType="number"
+                android:maxLength="16"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#2A3A4A"
+                android:textSize="15sp"
+                android:fontFamily="monospace"
+                android:visibility="gone"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/etCardExpiry"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="MM/YY"
+                    android:inputType="number"
+                    android:maxLength="5"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#2A3A4A"
+                    android:textSize="15sp"
+                    android:fontFamily="monospace"/>
+
+                <EditText
+                    android:id="@+id/etCardCvc"
+                    android:layout_width="0dp"
+                    android:layout_height="52dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_input"
+                    android:hint="CVC"
+                    android:inputType="numberPassword"
+                    android:maxLength="3"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#2A3A4A"
+                    android:textSize="15sp"
+                    android:fontFamily="monospace"/>
+
+            </LinearLayout>
+
             <Button
                 android:id="@+id/btnCardRegister"
                 android:layout_width="match_parent"
@@ -212,5 +283,51 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone"/>
+
+    <WebView
+        android:id="@+id/OpenPgWebView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"/>
+
+    <!-- WebView 위에 떠있는 취소 헤더 바 (FrameLayout 마지막 = 최상단 렌더링) -->
+    <LinearLayout
+        android:id="@+id/layoutWebViewHeader"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_gravity="top"
+        android:background="#E6080C10"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btnWebViewCancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:text="← 취소"
+            android:textColor="#778899"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="카드 등록"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔒"
+            android:textSize="14sp"/>
+
+    </LinearLayout>
 
 </FrameLayout>

@@ -100,10 +100,10 @@ class CarPayInService : Service() {
         if (isRunning) return START_STICKY
         isRunning = true
 
-        // dataSync 타입 사용 (데모용 — 실서버에서는 location 타입 + 런타임 권한 요청 필요)
+        // API 29+: foregroundServiceType을 반드시 함께 전달해야 크래시 방지
         val notif = buildServiceNotif("CarPayIn 주차 감시 중")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
             startForeground(NOTIF_SERVICE, notif)
         }
@@ -301,15 +301,4 @@ class CarPayInService : Service() {
         val pi = PendingIntent.getActivity(
             this, id,
             Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        val notif = Notification.Builder(this, CHANNEL_EVENTS)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_directions)
-            .setContentIntent(pi)
-            .setAutoCancel(true)
-            .build()
-        nm.notify(id, notif)
-    }
-}
+     

@@ -18,7 +18,7 @@
 
     <!-- Foreground Service (백그라운드 주차 감시) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
     <!-- 알림 (입차 확정 / 결제 완료 Notification — Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
@@ -37,25 +37,4 @@
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".RegistrationActivity"
-            android:exported="false" />
-
-        <!--
-            CarPayInService: 포그라운드 서비스
-            ▸ START_STICKY → 시스템이 죽여도 자동 재시작
-            ▸ foregroundServiceType="location" → 백그라운드 GPS 지오펜스 허용
-        -->
-        <service
-            android:name=".CarPayInService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-    </application>
-
-</manifest>
+                <action android:name="android.intent.action.MAIN

@@ -63,6 +63,10 @@ class RegistrationActivity : Activity() {
     private lateinit var btnCardCancel: Button
     private lateinit var btnRegCancel: Button
 
+    // ── WebView 헤더 (취소 버튼 오버레이) ─────────────────────────────────────
+    private lateinit var layoutWebViewHeader: LinearLayout
+    private lateinit var btnWebViewCancel: Button
+
     // ── 카드사 데이터 ──────────────────────────────────────────────────────────
     data class CardBrand(
         val displayName: String,   // 화면 표시용 (현대카드)
@@ -125,6 +129,16 @@ class RegistrationActivity : Activity() {
 
         btnRegCancel.setOnClickListener { confirmCancel() }
 
+        layoutWebViewHeader = findViewById(R.id.layoutWebViewHeader)
+        btnWebViewCancel    = findViewById(R.id.btnWebViewCancel)
+        btnWebViewCancel.setOnClickListener {
+            // WebView 포커스 문제로 AlertDialog 대신 바로 종료
+            webView.visibility             = View.GONE
+            layoutWebViewHeader.visibility = View.GONE
+            setResult(RESULT_CANCELED)
+            finish()
+        }
+
         webView = findViewById(R.id.webViewPg)
 
         setupCardPreview()
@@ -136,7 +150,8 @@ class RegistrationActivity : Activity() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 단계 1: mTLS 차량 인증
+    // 단계 1+2: mTLS 차량 인증 + 번호판 자동 확인 (팝업 없음)
+    // 국토부 API 결과를 신뢰하므로 사용자 개입 없이 자동 진행
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun startRegistrationFlow() {
@@ -148,99 +163,30 @@ class RegistrationActivity : Activity() {
                 val certPem = KeystoreManager.generateKeyPairIfNeeded()
 
                 handler.post {
-                    tvRegVin.text = "VIN: ${vin.take(5)}•••••••••••"
+                    tvRegVin.text    = "VIN: ${vin.take(5)}•••••••••••"
                     tvKeyStatus.text = "🔑 HSM 보안키 준비 완료"
                     tvKeyStatus.setTextColor(Color.parseColor("#00AA55"))
+                    showStep("번호판 조회 중...", "국토부 차량 정보 확인")
                 }
 
+                // 1. 차량 등록 → 토큰 발급
                 val authResult = ApiManager.authenticate(vin, certPem)
                 ParkingStateManager.saveTokens(this, authResult.accessToken, authResult.refreshToken)
                 plate = authResult.plateNumber
 
-                handler.post { showPlateConfirmDialog(plate) }
+                // 2. 번호판 자동 확인 저장 (팝업 없이)
+                handler.post { showStep("번호판 등록 중...", plate) }
+                ApiManager.confirmPlate(vin, plate, authResult.accessToken)
+                ParkingStateManager.savePlateNumber(this, plate)
+
+                handler.post {
+                    tvRegPlate.text = "번호판: $plate"
+                    checkGearAndProceed()
+                }
 
             } catch (e: Exception) {
                 Log.e(TAG, "차량 인증 실패: ${e.javaClass.simpleName} — ${e.message}")
                 handler.post { showError("차량 인증 실패", "${e.javaClass.simpleName}\n재시도 해주세요") }
-            }
-        }.start()
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 단계 2: 번호판 확인 팝업 & 수동 입력
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private fun showPlateConfirmDialog(plate: String) {
-        showStep("번호판 확인", "국토부 차량 정보 조회 완료")
-        progressBarReg.visibility = View.GONE
-
-        // 밝은 배경의 다이얼로그
-        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-            .setTitle("🚗  차량 번호판 확인")
-            .setMessage("차량번호\n\n    $plate\n\n이(가) 맞습니까?")
-            .setPositiveButton("맞습니다") { _, _ ->
-                confirmPlateAndProceed(plate)
-            }
-            .setNegativeButton("직접 입력") { _, _ ->
-                showManualPlateInputDialog()
-            }
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun showManualPlateInputDialog() {
-        val etManualPlate = EditText(this).apply {
-            hint = "예: 123가4567"
-            setSingleLine()
-            gravity = android.view.Gravity.CENTER
-            setPadding(40, 40, 40, 40)
-        }
-
-        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-            .setTitle("번호판 수동 입력")
-            .setMessage("실제 차량 번호판 정보를 입력해 주세요.")
-            .setView(etManualPlate)
-            .setPositiveButton("확인") { _, _ ->
-                val manualPlate = etManualPlate.text.toString().trim()
-                if (manualPlate.isNotEmpty()) {
-                    // 정규식을 통한 번호판 기본 형식 검증 (예: 12가3456 또는 123가4567)
-                    if (manualPlate.matches(Regex("^[0-9]{2,3}[가-힣][0-9]{4}$"))) {
-                        confirmPlateAndProceed(manualPlate)
-                    } else {
-                        Toast.makeText(this, "올바른 번호판 형식(예: 123가4567)으로 입력해주세요.", Toast.LENGTH_SHORT).show()
-                        showManualPlateInputDialog()
-                    }
-                } else {
-                    Toast.makeText(this, "번호판을 입력해야 합니다.", Toast.LENGTH_SHORT).show()
-                    showManualPlateInputDialog()
-                }
-            }
-            .setNegativeButton("취소") { _, _ ->
-                showPlateConfirmDialog(plate) // 다시 확인 단계로 돌아가기
-            }
-            .setCancelable(false)
-            .show()
-    }
-
-    private fun confirmPlateAndProceed(confirmedPlate: String) {
-        showLoadingState("번호판 등록 중...", "백엔드 DB 저장")
-
-        Thread {
-            try {
-                val token = ParkingStateManager.getAccessToken(this) ?: ""
-                ApiManager.confirmPlate(vin, confirmedPlate, token)
-                ParkingStateManager.savePlateNumber(this, confirmedPlate)
-
-                // 클래스 멤버 변수 갱신
-                this.plate = confirmedPlate
-
-                handler.post {
-                    tvRegPlate.text = "번호판: $confirmedPlate"
-                    checkGearAndProceed()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "번호판 등록 실패: ${e.message}")
-                handler.post { showError("번호판 등록 실패", "재시도 해주세요") }
             }
         }.start()
     }
@@ -262,7 +208,7 @@ class RegistrationActivity : Activity() {
         // 에뮬레이터(Pleos Connect): Mock 카드 입력 화면 사용
         // 실서버 연동 시 → createSessionAndOpenPgWebView() 로 교체
         // showCardInputState()
-        createSessionAndOpenPgWebView()
+        createSessionAndOpenPgWebView(selectedBrand.shortName)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -295,7 +241,7 @@ class RegistrationActivity : Activity() {
         btnCardRegister.text = "카드사 연결하기" // 버튼 텍스트 변경
         btnCardRegister.setOnClickListener {
             // 현재 선택된 브랜드의 이름(예: HYUNDAI)을 넘겨줌
-            OpenPgWebView(selectedBrand.shortName)
+            createSessionAndOpenPgWebView(selectedBrand.shortName)
         }
     }
 
@@ -323,10 +269,11 @@ class RegistrationActivity : Activity() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun openPgWebView(orderId: String, brand: String) { // brand 파라미터 추가
+    private fun openPgWebView(orderId: String, brand: String) {
         layoutRegLoading.visibility   = View.GONE
         layoutRegCardInput.visibility = View.GONE
         webView.visibility            = View.VISIBLE
+        layoutWebViewHeader.visibility = View.VISIBLE
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -335,8 +282,28 @@ class RegistrationActivity : Activity() {
 
         webView.addJavascriptInterface(PgJsInterface(orderId), "Android")
 
-        // 쿼리 파라미터에 brand를 추가하여 파이썬 서버가 어떤 카드사인지 알 수 있게 함
-        val pgUrl = "http://10.0.2.2:8000/card-register?order_id=$orderId&brand=$brand"
+        // 페이지 로드 실패 시 에러 화면 표시
+        webView.webViewClient = object : WebViewClient() {
+            override fun onReceivedError(
+                view: android.webkit.WebView?,
+                request: android.webkit.WebResourceRequest?,
+                error: android.webkit.WebResourceError?
+            ) {
+                if (request?.isForMainFrame == true) {
+                    handler.post {
+                        webView.visibility             = View.GONE
+                        layoutWebViewHeader.visibility = View.GONE
+                        showError(
+                            "서버 연결 실패",
+                            "Mock PG 서버(포트 9000)가\n실행 중인지 확인해주세요"
+                        )
+                    }
+                }
+            }
+        }
+
+        // Mock PG는 9000번 포트 (에뮬레이터 → 호스트 PC)
+        val pgUrl = "http://10.0.2.2:9000/card-register?order_id=$orderId&brand=$brand"
         Log.d(TAG, "PG WebView URL: $pgUrl")
         webView.loadUrl(pgUrl)
     }
@@ -357,8 +324,9 @@ class RegistrationActivity : Activity() {
         ) {
             Log.d(TAG, "PG 등록 완료 수신: last=$lastFour, brand=$cardBrand")
             handler.post {
-                webView.visibility          = View.GONE
-                layoutRegLoading.visibility = View.VISIBLE
+                webView.visibility             = View.GONE
+                layoutWebViewHeader.visibility = View.GONE
+                layoutRegLoading.visibility    = View.VISIBLE
                 showLoadingState("등록 처리 중...", "payment_method_id 수신")
                 finishCardRegistrationFromPg(orderId, lastFour, cardBrand)
             }

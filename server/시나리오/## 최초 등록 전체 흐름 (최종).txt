@@ -1,0 +1,72 @@
+## 최초 등록 전체 흐름 (최종)
+
+### 앱 최초 실행 및 차량 인증
+
+사용자가 차량에 탑승해서 AAOS 앱을 처음 실행하면 로딩 화면이 뜨는 동안 백그라운드에서 차량 인증이 자동으로 진행됩니다. 앱은 VHAL의 `VEHICLE_PROPERTY_INFO_VIN` 속성을 통해 차량 VIN을 읽어오고, 앱 최초 설치 시 Android Keystore의 StrongBox에 생성된 클라이언트 인증서와 함께 mTLS 방식으로 퍼블릭 클라우드 백엔드에 연결합니다. mTLS 핸드쉐이크 시 서명 연산은 Keystore 내부에서 이루어지기 때문에 앱 코드도 개인키 원본을 볼 수 없습니다.
+
+백엔드는 VIN과 인증서 지문(SHA-256 해시)이 유효한 조합인지 확인하고 두 값을 DB에 저장합니다. 이후 액세스 토큰(1시간 유효)과 리프레시 토큰(30일 유효)을 발급해서 앱으로 반환하고, 앱은 두 토큰을 EncryptedSharedPreferences에 저장합니다. 이 모든 과정이 로딩 화면 안에서 끝납니다.
+
+### 번호판 자동 조회
+
+차량 인증이 완료되면 백엔드가 국토부 자동차종합정보 API에 VIN을 요청해서 해당 차량의 번호판을 자동으로 가져옵니다. 실제 환경에서는 개인정보보호법상 소유주 본인 인증이 선행되어야 하기 때문에, 이 프로젝트에서는 국토부 API를 Mock으로 대체하고 인증이 완료된 상태로 가정합니다. 번호판이 조회되면 앱 화면에 "차량번호 123가4567이 맞습니까?"라는 확인 요청이 뜨고, 사용자가 확인을 탭하면 백엔드 DB에 VIN과 번호판이 매핑되어 저장됩니다.
+
+### 카드 등록 진입 조건 확인
+
+번호판 확인이 끝나면 카드 등록 단계로 넘어갑니다. 앱은 VHAL의 `GEAR_SELECTION` 속성을 조회해서 현재 기어가 P 상태인지 확인합니다. 주행 중에 카드 등록 화면이 뜨면 운전자 주의가 분산될 수 있기 때문에 기어가 P일 때만 카드 등록 WebView가 열리도록 제한합니다. P가 아니면 "주차 후 카드를 등록해 주세요" 안내 메시지를 표시합니다.
+
+### 카드 등록 세션 생성
+
+기어 P가 확인되면 백엔드가 이 등록 세션을 식별할 고유한 order_id를 생성합니다. 동시에 Redis에 `{ order_id → VIN }` 매핑을 TTL 30분으로 저장합니다. order_id는 백엔드가 만드는 시점에 이미 어떤 VIN의 요청인지 알고 있기 때문에, 나중에 웹훅이 들어왔을 때 이 order_id로 VIN을 찾아낼 수 있습니다. 백엔드가 order_id를 앱으로 반환합니다.
+
+### PG 웹뷰 카드 입력
+
+앱은 order_id를 파라미터로 포함해서 Mock PG의 카드 등록 WebView를 실행합니다. 사용자가 WebView에서 카드 번호, 유효기간, CVC를 입력하면 해당 정보는 앱을 거치지 않고 HTTPS로 Mock PG 서버에 직접 전송됩니다. 앱 코드는 WebView 내부의 통신에 개입할 수 없어서 카드 정보가 앱 메모리에조차 올라오지 않습니다.
+
+### 빌링키 발급 및 웹훅
+
+Mock PG는 카드 정보를 받아서 빌링키와 customer_key를 생성합니다. 카드 원번호는 OpenStack 프라이빗 클라우드의 카드 DB에 저장됩니다. Mock PG는 빌링키 발급이 완료되면 백엔드의 콜백 URL로 웹훅을 POST합니다. 웹훅에는 customer_key와 order_id, 그리고 Mock PG가 시크릿 키로 서명한 HMAC 값이 포함됩니다.
+
+백엔드는 HMAC 서명을 먼저 검증해서 진짜 Mock PG에서 온 요청인지 확인합니다. 검증이 완료되면 Redis에서 order_id로 VIN을 조회하고, 해당 VIN에 customer_key를 매핑해서 DB에 저장합니다. 저장이 완료되면 order_id는 Redis에서 즉시 삭제됩니다. 백엔드는 내부 식별자인 payment_method_id를 생성해서 앱으로 반환하고, 앱은 이 값을 EncryptedSharedPreferences에 저장합니다.
+
+카드 원번호는 Mock PG 내부에만, customer_key는 백엔드 DB에만, 앱에는 payment_method_id만 남는 3단계 격리 구조가 완성되며 최초 등록이 끝납니다.
+
+---
+
+```
+앱 최초 실행
+    ↓
+VHAL: VIN 자동 읽기
+VIN + 앱 인증서 → mTLS → 퍼블릭 백엔드
+백엔드 DB: VIN + 인증서 지문 저장
+    ↓
+액세스 토큰 + 리프레시 토큰 발급
+EncryptedSharedPreferences 저장
+    ↓
+백엔드 → Mock 국토부 API: 번호판 조회
+앱: "123가4567 맞습니까?" 확인
+백엔드 DB: VIN + 번호판 매핑 저장
+    ↓
+VHAL: GEAR_SELECTION = P 확인
+    ↓
+백엔드: order_id 생성
+Redis: { order_id → VIN } (TTL 30분)
+    ↓
+Mock PG WebView 실행 (order_id 포함)
+사용자 카드 입력 → HTTPS → Mock PG
+    ↓
+Mock PG: billing_key + customer_key 생성
+카드 원번호 → OpenStack 프라이빗 DB 저장
+    ↓
+Mock PG → 백엔드 웹훅
+{ order_id + customer_key + HMAC }
+    ↓
+백엔드: HMAC 검증
+Redis: order_id → VIN 조회
+DB: VIN ↔ customer_key 저장
+Redis: order_id 삭제
+    ↓
+payment_method_id 생성 → 앱으로 반환
+EncryptedSharedPreferences: payment_method_id 저장
+    ↓
+등록 완료
+```
