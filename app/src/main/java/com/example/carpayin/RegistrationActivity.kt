@@ -24,20 +24,20 @@ class RegistrationActivity : Activity() {
 
     // Views
     private lateinit var ivQrCode: ImageView
-    private lateinit var tvInstruction: TextView
+    private lateinit var tvPollingStatus: TextView
     private lateinit var btnCancel: Button
 
+    // Data
     private lateinit var loginSessionId: String
     private lateinit var vin: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // TODO: activity_registration.xml에 ImageView(R.id.ivQrCode)를 추가하고 WebView는 삭제하세요.
         setContentView(R.layout.activity_registration)
 
-        ivQrCode = findViewById(R.id.ivQrCode) // QR이 표시될 이미지 뷰
-        tvInstruction = findViewById(R.id.tvRegDetail)
-        btnCancel = findViewById(R.id.btnWebViewCancel)
+        ivQrCode = findViewById(R.id.ivQrCode)
+        tvPollingStatus = findViewById(R.id.tvPollingStatus)
+        btnCancel = findViewById(R.id.btnCancel)
 
         vin = VehicleDataManager.readVin(this)
 
@@ -50,19 +50,17 @@ class RegistrationActivity : Activity() {
             finish()
         }
 
-        // 2. QR 코드 생성 및 화면 표시
+        // 2. QR 코드 화면 표시
         showQrCode()
 
-        // 3. 백엔드 폴링 시작 (폰에서 로그인 완료할 때까지 대기)
+        // 3. 백엔드 폴링 시작 (폰에서 로그인 완료 대기)
         startPollingLoginStatus()
     }
 
     private fun showQrCode() {
-        // 폰으로 스캔 시 접속할 서버 주소 (또는 딥링크)
-        // 백엔드가 이 URL을 받아서 마이현대 로그인 창으로 리다이렉트 시켜줘야 합니다.
+        // 스마트폰이 접속할 백엔드 주소 (FastAPI 서버)
+        // 안드로이드 에뮬레이터에서 로컬호스트 접근 시 10.0.2.2 사용
         val authUrl = "http://10.0.2.2:8080/auth/mobile/start?session_id=$loginSessionId&vin=$vin"
-
-        tvInstruction.text = "스마트폰 카메라로 QR 코드를 스캔하여\n마이현대 로그인을 진행해 주세요."
 
         Thread {
             try {
@@ -80,7 +78,6 @@ class RegistrationActivity : Activity() {
 
                 handler.post {
                     ivQrCode.setImageBitmap(bitmap)
-                    ivQrCode.visibility = View.VISIBLE
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "QR 생성 실패", e)
@@ -96,23 +93,24 @@ class RegistrationActivity : Activity() {
 
                 Thread {
                     try {
-                        // 백엔드에 세션 상태 확인 요청 (ApiManager에 새로 추가 필요)
+                        // 백엔드에 세션 완료 여부 확인
                         val statusResult = ApiManager.checkLoginSession(loginSessionId)
 
                         if (statusResult.isComplete) {
                             isPolling = false
-                            // 인증 완료! 정보 저장
+
+                            // 완료 시 토큰 및 차량정보 저장
                             ParkingStateManager.saveTokens(this@RegistrationActivity, statusResult.accessToken, statusResult.refreshToken)
                             ParkingStateManager.savePlateNumber(this@RegistrationActivity, statusResult.plateNumber)
                             ParkingStateManager.setRegistered(this@RegistrationActivity, true)
 
                             handler.post {
-                                Toast.makeText(this@RegistrationActivity, "✓ 차량 등록 완료!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@RegistrationActivity, "✓ 차량 연동이 완료되었습니다!", Toast.LENGTH_SHORT).show()
                                 setResult(RESULT_OK)
                                 finish()
                             }
                         } else {
-                            // 아직 폰에서 로그인 중이므로 2초 뒤 다시 시도
+                            // 대기 중이면 2초 뒤 재시도
                             handler.postDelayed(this, 2000)
                         }
                     } catch (e: Exception) {

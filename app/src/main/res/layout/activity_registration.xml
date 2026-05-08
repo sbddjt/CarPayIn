@@ -1,327 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#080C10">
+    android:background="#050A15"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center">
 
-    <ScrollView
-        android:id="@+id/layoutRegCardInput"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:fillViewport="true"
-        android:visibility="gone">
+    <TextView
+        android:id="@+id/tvRegStep"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="차량 결제 시스템 연동"
+        android:textColor="#FFFFFF"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp"/>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="24dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="24dp"
-                android:text="CAR PAY-IN"
-                android:textColor="#00E87A"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.2"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="카드 등록"
-                android:textColor="#FFFFFF"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="4dp"/>
-
-            <TextView
-                android:id="@+id/tvRegVin"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="VIN: —"
-                android:textColor="#556677"
-                android:textSize="11sp"
-                android:layout_marginBottom="2dp"/>
-
-            <TextView
-                android:id="@+id/tvRegPlate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="번호판: —"
-                android:textColor="#556677"
-                android:textSize="11sp"
-                android:layout_marginBottom="20dp"/>
-
-            <LinearLayout
-                android:id="@+id/cardPreviewBody"
-                android:layout_width="match_parent"
-                android:layout_height="180dp"
-                android:orientation="vertical"
-                android:padding="20dp"
-                android:background="#1A1A2E"
-                android:elevation="8dp">
-
-                <RelativeLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-                    <TextView
-                        android:id="@+id/tvCardBrand"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="HYUNDAI"
-                        android:textColor="#CCCCCC"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:letterSpacing="0.2"/>
-                    <TextView
-                        android:id="@+id/tvCardNetwork"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_alignParentEnd="true"
-                        android:text="VISA"
-                        android:textColor="#FFD700"
-                        android:textSize="14sp"
-                        android:textStyle="bold"/>
-                </RelativeLayout>
-
-                <View
-                    android:layout_width="40dp"
-                    android:layout_height="30dp"
-                    android:background="#C8A030"
-                    android:layout_marginTop="16dp"/>
-
-                <TextView
-                    android:id="@+id/tvCardPreviewNumber"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="•••• •••• •••• ••••"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp"
-                    android:letterSpacing="0.1"
-                    android:fontFamily="monospace"/>
-
-                <TextView
-                    android:id="@+id/tvCardPreviewExpiry"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="MM/YY"
-                    android:textColor="#CCCCCC"
-                    android:textSize="13sp"
-                    android:fontFamily="monospace"/>
-            </LinearLayout>
-
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:scrollbars="none">
-                <LinearLayout
-                    android:id="@+id/layoutCardBrands"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"/>
-            </HorizontalScrollView>
-
-            <!-- 카드 직접 입력 필드 (WebView 대체 입력용) -->
-            <TextView
-                android:id="@+id/tvKeyStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="4dp"
-                android:text="🔐 보안키 확인 완료"
-                android:textColor="#00AA55"
-                android:textSize="11sp"
-                android:visibility="gone"/>
-
-            <EditText
-                android:id="@+id/etCardNumber"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/bg_input"
-                android:hint="카드번호 16자리"
-                android:inputType="number"
-                android:maxLength="16"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#2A3A4A"
-                android:textSize="15sp"
-                android:fontFamily="monospace"
-                android:visibility="gone"/>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="10dp"
-                android:visibility="gone">
-
-                <EditText
-                    android:id="@+id/etCardExpiry"
-                    android:layout_width="0dp"
-                    android:layout_height="52dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/bg_input"
-                    android:hint="MM/YY"
-                    android:inputType="number"
-                    android:maxLength="5"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#2A3A4A"
-                    android:textSize="15sp"
-                    android:fontFamily="monospace"/>
-
-                <EditText
-                    android:id="@+id/etCardCvc"
-                    android:layout_width="0dp"
-                    android:layout_height="52dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_input"
-                    android:hint="CVC"
-                    android:inputType="numberPassword"
-                    android:maxLength="3"
-                    android:paddingStart="14dp"
-                    android:paddingEnd="14dp"
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#2A3A4A"
-                    android:textSize="15sp"
-                    android:fontFamily="monospace"/>
-
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/btnCardRegister"
-                android:layout_width="match_parent"
-                android:layout_height="54dp"
-                android:layout_marginTop="32dp"
-                android:background="@drawable/bg_btn_green"
-                android:text="카드사 연결하기"
-                android:textColor="#000000"
-                android:textStyle="bold"
-                android:textSize="16sp"/>
-
-            <Button
-                android:id="@+id/btnCardCancel"
-                android:layout_width="match_parent"
-                android:layout_height="50dp"
-                android:layout_marginTop="8dp"
-                android:background="?android:attr/selectableItemBackground"
-                android:text="취소"
-                android:textColor="#556677"
-                android:textSize="14sp"/>
-
-        </LinearLayout>
-    </ScrollView>
-
-    <LinearLayout
-        android:id="@+id/layoutRegLoading"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
+    <TextView
+        android:id="@+id/tvRegDetail"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="스마트폰 카메라로 아래 QR 코드를 스캔하여\n마이현대 로그인을 진행해 주세요."
+        android:textColor="#AAAAAA"
+        android:textSize="16sp"
         android:gravity="center"
-        android:orientation="vertical"
-        android:padding="40dp"
-        android:visibility="visible">
+        android:layout_marginBottom="32dp"/>
 
-        <ProgressBar
-            android:id="@+id/progressBarReg"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:indeterminateTint="#00FF88"/>
+    <FrameLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:padding="16dp"
+        android:layout_marginBottom="32dp">
 
-        <TextView
-            android:id="@+id/tvRegStep"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="차량 인증 중..."
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+        <ImageView
+            android:id="@+id/ivQrCode"
+            android:layout_width="250dp"
+            android:layout_height="250dp" />
+    </FrameLayout>
 
-        <TextView
-            android:id="@+id/tvRegDetail"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="잠시만 기다려 주세요"
-            android:textColor="#555555"
-            android:textSize="13sp"
-            android:gravity="center"/>
+    <ProgressBar
+        android:id="@+id/progressBarReg"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginBottom="16dp"
+        android:indeterminateTint="#00FF88"/>
 
-        <Button
-            android:id="@+id/btnRegRetry"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="재시도"
-            android:visibility="gone"/>
+    <TextView
+        android:id="@+id/tvPollingStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="스마트폰 인증 대기 중..."
+        android:textColor="#00FF88"
+        android:textSize="14sp"
+        android:layout_marginBottom="32dp"/>
 
-        <Button
-            android:id="@+id/btnRegCancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:background="?android:attr/selectableItemBackground"
-            android:text="← 등록 중단"
-            android:textColor="#778899"
-            android:textSize="13sp"/>
-    </LinearLayout>
+    <Button
+        android:id="@+id/btnCancel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="취소"
+        android:backgroundTint="#333333"
+        android:textColor="#FFFFFF"
+        android:paddingHorizontal="32dp"/>
 
-    <WebView
-        android:id="@+id/webViewPg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone"/>
-
-    <!-- WebView 위에 떠있는 취소 헤더 바 (FrameLayout 마지막 = 최상단 렌더링) -->
-    <LinearLayout
-        android:id="@+id/layoutWebViewHeader"
-        android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_gravity="top"
-        android:background="#E6080C10"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="16dp"
-        android:visibility="gone">
-
-        <Button
-            android:id="@+id/btnWebViewCancel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="?android:attr/selectableItemBackground"
-            android:text="← 취소"
-            android:textColor="#778899"
-            android:textSize="13sp"/>
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="카드 등록"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:textStyle="bold"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🔒"
-            android:textSize="14sp"/>
-
-    </LinearLayout>
-
-</FrameLayout>
+</LinearLayout>
