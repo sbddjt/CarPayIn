@@ -55,6 +55,8 @@ class CarPayInService : Service() {
         var onPaymentComplete: ((txId: String, approvalNo: String, lotId: String, amount: Int) -> Unit)? = null
         /** MQTT 연결 상태 변경 */
         var onConnectionChanged: ((connected: Boolean) -> Unit)? = null
+        /** 지오펜스 주차장 접근 감지 */
+        var onLotApproaching: ((lotId: String, lotName: String) -> Unit)? = null
 
         fun start(context: Context) {
             context.startForegroundService(Intent(context, CarPayInService::class.java))
@@ -100,10 +102,10 @@ class CarPayInService : Service() {
         if (isRunning) return START_STICKY
         isRunning = true
 
-        // dataSync 타입 사용 (데모용 — 실서버에서는 location 타입 + 런타임 권한 요청 필요)
+        // API 29+: foregroundServiceType을 반드시 함께 전달해야 크래시 방지
         val notif = buildServiceNotif("CarPayIn 주차 감시 중")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
             startForeground(NOTIF_SERVICE, notif)
         }
@@ -113,6 +115,19 @@ class CarPayInService : Service() {
         vin = VehicleDataManager.readVin(this)
 
         setupCallbacks()
+
+        // 제휴 주차장 목록 갱신
+        Thread {
+            runCatching {
+                val lots = ApiManager.fetchParkingLots()
+                GeofenceManager.updateParkingLots(
+                    lots.map { GeofenceManager.ParkingLot(it.id, it.name, it.lat, it.lng) }
+                )
+                Log.d(TAG, "주차장 목록 갱신 완료: ${lots.size}개")
+            }.onFailure {
+                Log.w(TAG, "주차장 목록 조회 실패 (캐시 사용): ${it.message}")
+            }
+        }.start()
 
         // MQTT 연결
         Thread {
@@ -306,7 +321,7 @@ class CarPayInService : Service() {
         val notif = Notification.Builder(this, CHANNEL_EVENTS)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_directions)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build()

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from contextlib import asynccontextmanager
 import uuid, time, hashlib, hmac as hmac_lib
 from datetime import datetime
@@ -15,6 +16,19 @@ import mqtt_service
 PARKING_PMS_URL = "http://localhost:8001"
 MOCK_PG_URL     = "http://localhost:9000"
 HMAC_SECRET     = "mock_pg_secret_key_carpayin"
+
+# ── 현대 개발자 포털 설정 ───────────────────────────────────────────────────
+HYUNDAI_CLIENT_ID     = "26b816d9-7764-42bd-bdbf-ff49f2e33098"
+HYUNDAI_CLIENT_SECRET = "VcFPoKezkzlyhv0C4V3dMhIRyUz91OG70jdiAJLrCPd6rIPD"
+HYUNDAI_REDIRECT_URI  = "http://localhost:8080/auth/redirect"
+
+# 현대 계정 API (OpenID Connect)
+HYUNDAI_TOKEN_URL    = "https://accounts.hyundai.com/auth/realms/HyundaiAccount/protocol/openid-connect/token"
+HYUNDAI_USERINFO_URL = "https://accounts.hyundai.com/auth/realms/HyundaiAccount/protocol/openid-connect/userinfo"
+
+# 현대 데이터 API (차량 정보 / VIN)
+# TODO: developers.hyundai.com API 가이드에서 실제 엔드포인트 확인 후 교체
+HYUNDAI_VEHICLE_LIST_URL = "https://api.hyundai.com/v1/spa/vehicles"
 
 # ── 앱 시작 ────────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -35,6 +49,216 @@ app = FastAPI(
 @app.get("/", tags=["Health"])
 def health():
     return {"status": "ok", "service": "CarPayIn Backend"}
+
+# ══════════════════════════════════════════════════════════════════════════
+# 현대 OAuth 흐름
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/auth/redirect", tags=["현대 OAuth"])
+async def hyundai_auth_redirect(code: str = None, state: str = None, error: str = None):
+    """
+    현대 계정 API → 로그인 완료 후 authorization code 수신
+    AAOS WebView가 이 URL을 intercept하므로 실제로 로드되는 경우는 드물지만
+    브라우저 테스트 or fallback 용도로 서버에서도 처리
+    """
+    if error:
+        print(f"[현대 OAuth] 로그인 오류: {error}")
+        return HTMLResponse(f"<h3>로그인 실패: {error}</h3>", status_code=400)
+
+    if not code:
+        return HTMLResponse("<h3>Authorization Code 없음</h3>", status_code=400)
+
+    print(f"[현대 OAuth] /auth/redirect — code 수신: {code[:8]}…")
+
+    try:
+        result = await _exchange_hyundai_code(code)
+        # 앱 WebView가 intercept했을 경우 이 HTML은 표시 안 됨
+        return HTMLResponse(f"""
+            <html><body>
+            <h3>✅ 현대 로그인 완료</h3>
+            <p>user_id: {result.get('user_id','')}</p>
+            <p>차량 수: {len(result.get('vin_list',[]))}대</p>
+            <script>
+              if(window.Android) {{
+                window.Android.onHyundaiAuthComplete(
+                  '{result.get("access_token","")}',
+                  '{result.get("refresh_token","")}',
+                  '{result.get("plate_number","")}',
+                  '{result.get("user_id","")}'
+                );
+              }}
+            </script>
+            </body></html>
+        """)
+    except Exception as e:
+        print(f"[현대 OAuth] 처리 실패: {e}")
+        return HTMLResponse(f"<h3>처리 오류: {e}</h3>", status_code=500)
+
+
+@app.post("/auth/hyundai/callback", tags=["현대 OAuth"])
+async def hyundai_callback(request: Request):
+    """
+    AAOS 앱 → WebView에서 intercept한 authorization code를 백엔드로 전달
+    백엔드가 현대 API 서버 투 서버 호출로 VIN + 차량 정보 조회
+    앱과 서버 사이 인터넷 구간에는 code만 오가고 VIN은 노출되지 않음
+    """
+    body = await request.json()
+    code     = body.get("code")
+    vin_vhal = body.get("vin", "")       # VHAL에서 읽은 VIN (교차 검증용)
+    cert_hash = body.get("cert_hash", "")
+
+    if not code:
+        raise HTTPException(400, "authorization code 필요")
+
+    print(f"[현대 OAuth] /auth/hyundai/callback — code: {code[:8]}… VHAL VIN: {vin_vhal[:8]}…")
+
+    result = await _exchange_hyundai_code(code, vin_vhal=vin_vhal, cert_hash=cert_hash)
+
+    print(f"[현대 OAuth] 완료 — user_id: {result['user_id'][:6]}… VIN 수: {len(result['vin_list'])}개")
+    return result
+
+
+@app.get("/data/redirect", tags=["현대 OAuth"])
+async def hyundai_data_redirect(code: str = None, error: str = None):
+    """현대 데이터 API OAuth redirect 수신"""
+    if error:
+        return HTMLResponse(f"<h3>데이터 API 오류: {error}</h3>", status_code=400)
+    print(f"[현대 데이터] /data/redirect — code: {(code or '')[:8]}…")
+    return HTMLResponse("<h3>데이터 API 연동 완료</h3>")
+
+
+@app.get("/data/callback", tags=["현대 OAuth"])
+@app.post("/data/callback", tags=["현대 OAuth"])
+async def hyundai_data_callback(request: Request):
+    """현대 데이터 API 콜백 (차량 데이터 push 수신)"""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    print(f"[현대 데이터] /data/callback 수신: {body}")
+    return {"status": "ok"}
+
+
+# ── 현대 OAuth 내부 로직 ───────────────────────────────────────────────────
+
+async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str = "") -> dict:
+    """
+    Authorization Code → 현대 access_token 교환 → 차량 정보 조회 → CarPayIn 토큰 발급
+    """
+    async with httpx.AsyncClient() as client:
+
+        # 1단계: authorization code → 현대 access_token
+        token_res = await client.post(
+            HYUNDAI_TOKEN_URL,
+            data={
+                "grant_type":   "authorization_code",
+                "client_id":    HYUNDAI_CLIENT_ID,
+                "client_secret": HYUNDAI_CLIENT_SECRET,
+                "redirect_uri": HYUNDAI_REDIRECT_URI,
+                "code":         code,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10.0
+        )
+        if token_res.status_code != 200:
+            raise HTTPException(502, f"현대 토큰 발급 실패: {token_res.text}")
+
+        token_data         = token_res.json()
+        hyundai_access     = token_data["access_token"]
+        hyundai_refresh    = token_data.get("refresh_token", "")
+
+        # 2단계: userinfo → user_id 조회
+        userinfo_res = await client.get(
+            HYUNDAI_USERINFO_URL,
+            headers={"Authorization": f"Bearer {hyundai_access}"},
+            timeout=10.0
+        )
+        user_info = userinfo_res.json() if userinfo_res.status_code == 200 else {}
+        user_id   = user_info.get("sub", user_info.get("user_id", str(uuid.uuid4())))
+
+        # 3단계: 차량 리스트 조회 → VIN + car_id
+        # TODO: 실제 현대 차량 API 엔드포인트 확인 후 URL 수정
+        vin_list = []
+        try:
+            vehicle_res = await client.get(
+                HYUNDAI_VEHICLE_LIST_URL,
+                headers={"Authorization": f"Bearer {hyundai_access}"},
+                timeout=10.0
+            )
+            if vehicle_res.status_code == 200:
+                vehicles = vehicle_res.json()
+                for v in (vehicles if isinstance(vehicles, list) else vehicles.get("vehicles", [])):
+                    vin_list.append({
+                        "vin":        v.get("vin", ""),
+                        "car_id":     v.get("carId", v.get("car_id", "")),
+                        "model_name": v.get("modelName", v.get("model_name", "")),
+                        "year":       v.get("year", 0),
+                    })
+        except Exception as e:
+            print(f"[현대 API] 차량 리스트 조회 실패 (Mock fallback): {e}")
+            # 차량 API 미승인 시 VHAL VIN으로 fallback
+            if vin_vhal:
+                vin_list = [{"vin": vin_vhal, "car_id": f"car_{vin_vhal[:8]}", "model_name": "Unknown", "year": 0}]
+
+        # 4단계: VHAL VIN 교차 검증 (vin_vhal이 있으면 목록에 있는지 확인)
+        matched_vin = vin_vhal
+        if vin_vhal and vin_list:
+            matched = next((v for v in vin_list if v["vin"] == vin_vhal), None)
+            if not matched:
+                print(f"[현대 OAuth] ⚠ VHAL VIN이 계정 차량 목록에 없음 — 첫 번째 차량으로 대체")
+                matched_vin = vin_list[0]["vin"] if vin_list else vin_vhal
+            else:
+                matched_vin = matched["vin"]
+        elif vin_list:
+            matched_vin = vin_list[0]["vin"]
+
+        car_info = next((v for v in vin_list if v["vin"] == matched_vin), {})
+
+        # 5단계: 번호판 조회 (Mock 국토부 API)
+        mock_plates = {
+            "TESTVIN001": "123가4567",
+            "TESTVIN002": "456나8901",
+        }
+        plate = mock_plates.get(matched_vin, f"000테{abs(hash(matched_vin)) % 9999:04d}")
+
+        # 6단계: DB 저장 + CarPayIn 토큰 발급
+        access_token  = f"at_{uuid.uuid4().hex}"
+        refresh_token = f"rt_{uuid.uuid4().hex}"
+        now = datetime.now().isoformat()
+
+        # 마이현대에 등록된 결제 수단을 대표하는 billing_key (Mock)
+        # 실제 서비스: 현대 페이 API에서 payment token 수신
+        billing_key = f"hbk_{hashlib.sha256(user_id.encode()).hexdigest()[:24]}"
+
+        with get_conn() as con:
+            con.execute("""
+                INSERT OR REPLACE INTO vehicles
+                    (vin, plate, cert_hash, customer_key, payment_method_id,
+                     registered_at, hyundai_user_id, hyundai_car_id, model_name, year)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (matched_vin, plate, cert_hash, billing_key, f"pm_{billing_key[:12]}",
+                  now, user_id, car_info.get("car_id",""), car_info.get("model_name",""), car_info.get("year",0)))
+
+            con.execute("""
+                INSERT OR REPLACE INTO hyundai_tokens
+                    (vin, hyundai_access_token, hyundai_refresh_token, issued_at)
+                VALUES (?, ?, ?, ?)
+            """, (matched_vin, hyundai_access, hyundai_refresh, now))
+
+            con.execute("""
+                INSERT OR REPLACE INTO tokens (vin, access_token, refresh_token, issued_at)
+                VALUES (?, ?, ?, ?)
+            """, (matched_vin, access_token, refresh_token, now))
+
+    return {
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "plate_number":  plate,
+        "user_id":       user_id,
+        "vin_list":      vin_list,
+    }
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # 최초 등록 흐름

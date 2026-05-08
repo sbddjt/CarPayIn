@@ -25,7 +25,7 @@ object MqttManager {
     private const val TAG = "MqttManager"
 
     // TODO: 실제 퍼블릭 백엔드 브로커 URL로 교체
-    private const val BROKER_URL = "tcp://10.0.2.2:1883"
+    private const val BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
 
     private var client: MqttClient? = null
 
@@ -112,20 +112,31 @@ object MqttManager {
         //            "lot_id": "LOT_...", "amount": 6000 }
         client?.subscribe("payment/complete/$vin", 1) { _, message ->
             runCatching {
-                val payload      = JSONObject(String(message.payload))
-                val txId         = payload.optString("transaction_id", "")
-                val approvalNo   = payload.optString("approval_number", "")
-                val lotId        = payload.optString("lot_id", "")
-                val amount       = payload.optInt("amount", 0)
-                Log.d(TAG, "결제 완료 수신: txId=$txId, lot=$lotId, amount=$amount")
+                val payload    = JSONObject(String(message.payload))
+                val txId       = payload.optString("transaction_id", "")
+                val approvalNo = payload.optString("approval_number", "")
+                val lotId      = payload.optString("lot_id", "")
+                val amount     = payload.optInt("amount", 0)
+                Log.d(TAG, "결제 완료 수신: tx=$txId, amount=$amount")
                 onPaymentComplete?.invoke(txId, approvalNo, lotId, amount)
             }.onFailure { Log.e(TAG, "결제 완료 파싱 오류: ${it.message}") }
         }
     }
 
+    // ── 상태 조회 ─────────────────────────────────────────────────────────────
+
     fun isConnected(): Boolean = client?.isConnected == true
 
+    // ── 연결 해제 ─────────────────────────────────────────────────────────────
+
     fun disconnect() {
-        try { client?.disconnect() } catch (e: Exception) {}
+        try {
+            client?.disconnect()
+            Log.d(TAG, "MQTT 연결 해제 완료")
+        } catch (e: Exception) {
+            Log.w(TAG, "MQTT 해제 중 오류: ${e.message}")
+        } finally {
+            client = null
+        }
     }
 }

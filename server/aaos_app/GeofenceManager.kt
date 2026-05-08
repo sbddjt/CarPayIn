@@ -37,11 +37,18 @@ object GeofenceManager {
     /**
      * 앱 초기화 시 백엔드에서 내려받아 캐싱하는 제휴 주차장 목록.
      * TODO: ApiManager.fetchParkingLots() 연동 후 이 목록을 교체
+     *
+     * [실측 차단기 위치]
+     *   Webots 시뮬레이션 좌표: x=53.33, y=3.67
+     *   실제 GPS: lat=37.493087, lng=127.049750
      */
     var cachedParkingLots: List<ParkingLot> = listOf(
-        ParkingLot("LOT_GANGNAM_01",      "강남 아이파킹",    37.4979, 127.0276),
-        ParkingLot("LOT_SEOCHO_01",       "서초 아이파킹",    37.4837, 127.0324),
-        ParkingLot("LOT_YEONGDEUNGPO_01", "영등포 아이파킹",  37.5258, 126.8962)
+        // ── 실제 테스트 주차장 (차단기 GPS 실측값) ──────────────────────────────
+        ParkingLot("LOT_TEST_01",         "테스트 주차장",    37.493087, 127.049750),
+        // ── Mock 데이터 (백엔드 연동 전 임시) ──────────────────────────────────
+        ParkingLot("LOT_GANGNAM_01",      "강남 아이파킹",    37.4979,   127.0276),
+        ParkingLot("LOT_SEOCHO_01",       "서초 아이파킹",    37.4837,   127.0324),
+        ParkingLot("LOT_YEONGDEUNGPO_01", "영등포 아이파킹",  37.5258,   126.8962)
     )
 
     /** 백엔드에서 수신한 주차장 목록으로 캐시 갱신 */

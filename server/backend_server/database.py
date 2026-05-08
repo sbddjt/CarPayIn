@@ -7,12 +7,24 @@ def init_db():
     with get_conn() as con:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS vehicles (
-                vin          TEXT PRIMARY KEY,
-                plate        TEXT,
-                cert_hash    TEXT,
-                customer_key TEXT,
+                vin               TEXT PRIMARY KEY,
+                plate             TEXT,
+                cert_hash         TEXT,
+                customer_key      TEXT,
                 payment_method_id TEXT,
-                registered_at TEXT
+                registered_at     TEXT,
+                hyundai_user_id   TEXT,
+                hyundai_car_id    TEXT,
+                model_name        TEXT,
+                year              INTEGER
+            );
+
+            -- 현대 OAuth 토큰 저장 (VIN과 별도 관리)
+            CREATE TABLE IF NOT EXISTS hyundai_tokens (
+                vin                  TEXT PRIMARY KEY,
+                hyundai_access_token TEXT,
+                hyundai_refresh_token TEXT,
+                issued_at            TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tokens (

@@ -37,11 +37,18 @@ object GeofenceManager {
     /**
      * 앱 초기화 시 백엔드에서 내려받아 캐싱하는 제휴 주차장 목록.
      * TODO: ApiManager.fetchParkingLots() 연동 후 이 목록을 교체
+     *
+     * [실측 차단기 GPS]
+     *   Webots 좌표: x=53.33, y=3.67
+     *   실제 GPS:    lat=37.493087, lng=127.049750
      */
     var cachedParkingLots: List<ParkingLot> = listOf(
-        ParkingLot("LOT_GANGNAM_01",      "강남 아이파킹",    37.4979, 127.0276),
-        ParkingLot("LOT_SEOCHO_01",       "서초 아이파킹",    37.4837, 127.0324),
-        ParkingLot("LOT_YEONGDEUNGPO_01", "영등포 아이파킹",  37.5258, 126.8962)
+        // 실제 테스트 주차장 (차단기 GPS 실측값)
+        ParkingLot("LOT_TEST_01",         "테스트 주차장",    37.493087, 127.049750),
+        // Mock 데이터
+        ParkingLot("LOT_GANGNAM_01",      "강남 아이파킹",    37.4979,   127.0276),
+        ParkingLot("LOT_SEOCHO_01",       "서초 아이파킹",    37.4837,   127.0324),
+        ParkingLot("LOT_YEONGDEUNGPO_01", "영등포 아이파킹",  37.5258,   126.8962)
     )
 
     /** 백엔드에서 수신한 주차장 목록으로 캐시 갱신 */
@@ -88,12 +95,6 @@ object GeofenceManager {
                 startSimulated()
             }
         }
-    }
-
-    fun stop() {
-        try { locationManager?.removeUpdates(locationListener) } catch (e: Exception) {}
-        detectedLots.clear()
-        Log.d(TAG, "위치 업데이트 중지, 감지 캐시 초기화")
     }
 
     // ── 위치 리스너 ───────────────────────────────────────────────────────────
@@ -175,11 +176,49 @@ object GeofenceManager {
 
     // ── 에뮬레이터 / 위치 미지원 시뮬레이션 ─────────────────────────────────
 
+    private var simThread: Thread? = null
+    private var simRunning = false
+
     private fun startSimulated() {
-        Log.d(TAG, "시뮬레이션 모드: 위치 비콘 대신 MQTT/개발자 메뉴 트리거 사용")
-        // MQTT의 입차 확정 알림이 parked 플래그를 직접 설정하기 때문에
-        // 에뮬레이터에서는 개발자 메뉴의 '입차 시뮬레이션'으로 동작 확인
+        Log.d(TAG, "시뮬레이션 모드: 백엔드 /sim/location 폴링 시작 (3초 간격)")
+        simRunning = true
+        simThread = Thread {
+            while (simRunning) {
+                try {
+                    val url = java.net.URL("${BASE_URL}/sim/location")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 3000
+                    conn.readTimeout    = 3000
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val json = org.json.JSONObject(body)
+                    val lat  = json.getDouble("lat")
+                    val lng  = json.getDouble("lng")
+
+                    val loc = android.location.Location("sim").apply {
+                        latitude  = lat
+                        longitude = lng
+                        speed     = 0f
+                    }
+                    checkGeofence(loc, dynamicRadius(0f), 0f)
+                    Log.d(TAG, "[시뮬레이션] lat=${"%.6f".format(lat)} lng=${"%.6f".format(lng)}")
+                } catch (e: Exception) {
+                    Log.w(TAG, "시뮬레이션 위치 조회 실패: ${e.message}")
+                }
+                Thread.sleep(3000)
+            }
+        }.also { it.isDaemon = true; it.start() }
     }
 
-    fun isActive(): Boolean = locationManager != null
+    fun stop() {
+        simRunning = false
+        simThread?.interrupt()
+        simThread = null
+        try { locationManager?.removeUpdates(locationListener) } catch (e: Exception) {}
+        detectedLots.clear()
+        Log.d(TAG, "위치 업데이트 중지, 감지 캐시 초기화")
+    }
+
+    private const val BASE_URL = "http://10.0.2.2:8000"
+
+    fun isActive(): Boolean = locationManager != null || simRunning
 }

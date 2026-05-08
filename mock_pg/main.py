@@ -2,8 +2,8 @@
 Mock PG (Payment Gateway) Server
 FastAPI 기반 카드 등록 시뮬레이터
 
-실행: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-AAOS 에뮬레이터 접근 URL: http://10.0.2.2:8000/card-register?order_id=TEST
+실행: uvicorn main:app --host 0.0.0.0 --port 9000 --reload
+AAOS 에뮬레이터 접근 URL: http://10.0.2.2:9000/card-register?order_id=TEST
 """
 
 from fastapi import FastAPI, Form
@@ -190,7 +190,7 @@ function renderBrands() {
     const el = document.getElementById('brandList');
     el.innerHTML = '';
     brands.forEach(b => {
-        const c = document.createElement('div');r
+        const c = document.createElement('div');
         c.className = 'chip' + (b === selected ? ' on' : '');
         c.textContent = b.name;
         if (b === selected) { c.style.background = b.bg; c.style.color = b.tc; }
@@ -255,6 +255,7 @@ async function submitCard() {
             // Android WebView JS 인터페이스 호출
             if (window.Android) {
                 window.Android.onRegistrationComplete(
+                    data.customer_key,
                     data.order_id,
                     data.last_four,
                     selected.name

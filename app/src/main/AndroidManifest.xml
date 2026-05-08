@@ -13,26 +13,30 @@
     <!-- 위치 (동적 지오펜스 — GeofenceManager) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- 백그라운드 위치: 시동 OFF 상태에서도 지오펜스 유지 -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
 
     <!-- Foreground Service (백그라운드 주차 감시) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 
-    <!-- 알림 (입차 확정 / 결제 완료 Notification — Android 13+) -->
+    <!-- 알림 (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!--
+        required="false" : 일반 Android 에뮬레이터에서도 설치/실행 가능
+        실 AAOS 기기 배포 시 required="true" 로 변경
+    -->
     <uses-feature
         android:name="android.hardware.type.automotive"
-        android:required="true" />
+        android:required="false" />
 
     <application
         android:label="Car PayIn"
         android:theme="@style/Theme.AppCompat"
         android:usesCleartextTraffic="true">
-        <!-- usesCleartextTraffic: Mock 백엔드 http 연결 허용 (실서버 https 전환 시 제거) -->
+        <!-- usesCleartextTraffic: Mock 백엔드 http:// 허용 (실서버 https 전환 시 제거) -->
 
+        <!-- 메인 화면 -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -42,19 +46,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 최초 등록 / 카드 재등록 화면 -->
         <activity
             android:name=".RegistrationActivity"
             android:exported="false" />
 
-        <!--
-            CarPayInService: 포그라운드 서비스
-            ▸ START_STICKY → 시스템이 죽여도 자동 재시작
-            ▸ foregroundServiceType="location" → 백그라운드 GPS 지오펜스 허용
-        -->
+        <!-- 백그라운드 주차 감시 서비스 -->
         <service
             android:name=".CarPayInService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="location" />
 
     </application>
 

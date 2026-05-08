@@ -25,6 +25,12 @@ class MainActivity : AppCompatActivity() {
     // ── VIN ──────────────────────────────────────────────────────────────────
     private var vin: String = ""
 
+    // ── 지오펜스 접근 중인 주차장 ─────────────────────────────────────────────
+    private var approachingLotId: String? = null
+
+    // ── 내비게이션 중인 주차장 ────────────────────────────────────────────────
+    private var navigatingLotId: String? = null
+
     // ── Views ─────────────────────────────────────────────────────────────────
     private lateinit var tvStatusDot: TextView
     private lateinit var tvPaymentStatus: TextView
@@ -111,6 +117,9 @@ class MainActivity : AppCompatActivity() {
 
         VehicleDataManager.init(this)
         vin = VehicleDataManager.readVin(this)
+
+        // NaviHelper SDK 초기화
+        NaviHelper.init(this)
 
         if (ParkingStateManager.isRegistered(this)) {
             showRegisteredState()
@@ -268,12 +277,37 @@ class MainActivity : AppCompatActivity() {
     private fun populateParkingLots() {
         layoutParkingLots.removeAllViews()
 
-        GeofenceManager.cachedParkingLots.forEach { lot ->
+        // 접근 중 → 내비 중 순서로 우선 정렬
+        val sorted = GeofenceManager.cachedParkingLots.sortedWith(
+            compareByDescending<GeofenceManager.ParkingLot> { it.id == approachingLotId }
+                .thenByDescending { it.id == navigatingLotId }
+        )
+
+        sorted.forEach { lot ->
+            val isNearby    = lot.id == approachingLotId
+            val isNavigating = lot.id == navigatingLotId
+
+            // ── 행 배경 결정 ────────────────────────────────────────────────
+            val rowBg = when {
+                isNearby -> android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFF1A2200.toInt())
+                    setStroke(2, 0xFFFFD700.toInt())
+                    cornerRadius = 12f
+                }
+                isNavigating -> android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFF001A33.toInt())
+                    setStroke(2, 0xFF00AAFF.toInt())
+                    cornerRadius = 12f
+                }
+                else -> getDrawable(R.drawable.bg_card_dark)
+            }
+
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(16, 14, 16, 14)
-                val bg = getDrawable(R.drawable.bg_card_dark)
-                background = bg
+                background = rowBg
+                isClickable = true
+                isFocusable = true
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -282,26 +316,132 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = lp
             }
 
-            val tvIcon = TextView(this).apply { text = "📍"; textSize = 16f }
+            // ── 아이콘 ──────────────────────────────────────────────────────
+            val tvIcon = TextView(this).apply {
+                text = when {
+                    isNavigating -> "🧭"
+                    isNearby     -> "🚗"
+                    else         -> "📍"
+                }
+                textSize = 16f
+            }
+
+            // ── 주차장 이름 + 상태 텍스트 ───────────────────────────────────
+            val subText = when {
+                isNavigating -> "내비게이션 안내 중 · 탭하여 취소"
+                isNearby     -> "접근 중 · 사전 등록됨"
+                else         -> "탭하여 내비게이션 시작"
+            }
             val tvInfo = TextView(this).apply {
-                text = lot.name
-                setTextColor(Color.WHITE)
+                text = "${lot.name}\n$subText"
+                setTextColor(when {
+                    isNavigating -> Color.parseColor("#00AAFF")
+                    isNearby     -> Color.parseColor("#FFD700")
+                    else         -> Color.WHITE
+                })
                 textSize = 13f
                 val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 lp.setMargins(10, 0, 0, 0)
                 layoutParams = lp
             }
-            val tvStatus = TextView(this).apply {
-                text = "자동 감지"
-                setTextColor(Color.parseColor("#00AA55"))
+
+            // ── 우측 상태 배지 ───────────────────────────────────────────────
+            val tvBadge = TextView(this).apply {
+                text = when {
+                    isNavigating -> "안내 중"
+                    isNearby     -> "사전 등록됨"
+                    else         -> "제휴"
+                }
+                setTextColor(when {
+                    isNavigating -> Color.parseColor("#00AAFF")
+                    isNearby     -> Color.parseColor("#FFD700")
+                    else         -> Color.parseColor("#00AA55")
+                })
                 textSize = 11f
             }
 
             row.addView(tvIcon)
             row.addView(tvInfo)
-            row.addView(tvStatus)
+            row.addView(tvBadge)
             layoutParkingLots.addView(row)
+
+            // ── 클릭 리스너: 내비게이션 시작 / 취소 토글 ───────────────────
+            row.setOnClickListener {
+                if (isNavigating) {
+                    // 안내 중 → 탭하면 취소
+                    confirmCancelNavigation(lot)
+                } else {
+                    // 내비게이션 시작
+                    startNavigationTo(lot)
+                }
+            }
         }
+    }
+
+    /**
+     * 주차장을 선택하면:
+     *  1. NaviHelper SDK로 목적지 설정 → Pleos 내비게이션 경로 안내 시작
+     *  2. 사전 알림 전송 (아직 안 보낸 경우)
+     *  3. 해당 주차장 행을 파란색 "안내 중" 상태로 전환
+     */
+    private fun startNavigationTo(lot: GeofenceManager.ParkingLot) {
+        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+            .setTitle("🧭 내비게이션 시작")
+            .setMessage(
+                "${lot.name}\n\n" +
+                "목적지로 경로 안내를 시작합니다.\n" +
+                "도착 전 차량 정보가 주차장에 자동으로 등록됩니다."
+            )
+            .setPositiveButton("시작") { dialog, _ ->
+                dialog.dismiss()
+
+                // 내비게이션 상태 업데이트
+                navigatingLotId = lot.id
+                populateParkingLots()
+
+                // NaviHelper SDK 호출
+                NaviHelper.setDestination(
+                    context  = this,
+                    lat      = lot.lat,
+                    lng      = lot.lng,
+                    lotName  = lot.name,
+                    lotId    = lot.id
+                )
+
+                // 사전 알림 (지오펜스가 아직 감지 안 한 경우 수동 트리거)
+                val plate = ParkingStateManager.getPlateNumber(this)
+                val token = ParkingStateManager.getAccessToken(this)
+                if (plate != null && token != null) {
+                    val vin = VehicleDataManager.readVin(this)
+                    Thread {
+                        runCatching {
+                            ApiManager.sendPreNotification(vin, plate, lot.id, "NAVI", token)
+                            Log.d(TAG, "내비 목적지 기반 사전 알림 전송 완료: ${lot.id}")
+                        }.onFailure {
+                            Log.e(TAG, "사전 알림 실패: ${it.message}")
+                        }
+                    }.start()
+                }
+
+                Toast.makeText(this, "🧭 ${lot.name} 경로 안내 시작", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("취소", null)
+            .show()
+    }
+
+    private fun confirmCancelNavigation(lot: GeofenceManager.ParkingLot) {
+        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+            .setTitle("내비게이션 취소")
+            .setMessage("${lot.name} 경로 안내를 취소하시겠습니까?")
+            .setPositiveButton("취소") { dialog, _ ->
+                dialog.dismiss()
+                NaviHelper.cancelNavigation()
+                navigatingLotId = null
+                populateParkingLots()
+                Toast.makeText(this, "경로 안내가 취소되었습니다", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("계속 안내") { dialog, _ -> dialog.dismiss() }
+            .show()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -361,6 +501,19 @@ class MainActivity : AppCompatActivity() {
             tvStatusDot.setTextColor(
                 if (connected) 0xFF00FF88.toInt() else 0xFF888888.toInt()
             )
+        }
+
+        // 지오펜스 접근 감지 → 해당 주차장 목록 맨 위로 이동 + 강조 표시
+        CarPayInService.onLotApproaching = { lotId, lotName ->
+            approachingLotId = lotId
+            populateParkingLots()
+            Log.d(TAG, "주차장 접근 감지 → 목록 상단 표시: $lotName ($lotId)")
+        }
+
+        // NaviHelper → 목적지 도착 시 내비게이션 상태 해제
+        NaviHelper.onNavigationEnded = {
+            navigatingLotId = null
+            populateParkingLots()
         }
     }
 
@@ -597,34 +750,31 @@ class MainActivity : AppCompatActivity() {
     // Activity 결과 처리 & 초기화(등록 해제) 공통 함수
     // ─────────────────────────────────────────────────────────────────────────
 
+    @Deprecated("Deprecated in API level 29")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 100 && resultCode == RESULT_OK) {
-            vin = VehicleDataManager.readVin(this)
+            // 등록 완료 → 등록 상태 화면으로 전환
             showRegisteredState()
             startServicesAndListeners()
+            Toast.makeText(this, "✓ 카드 등록이 완료되었습니다", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun confirmReset() {
-        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-            .setTitle("등록 해제(초기화) 확인")
-            .setMessage("모든 등록 정보가 삭제됩니다.\n계속하시겠습니까?")
-            .setPositiveButton("초기화") { _, _ ->
-                CarPayInService.stop(this)       // 포그라운드 서비스 종료
-                MqttManager.disconnect()
-                GeofenceManager.stop()
-                ParkingStateManager.clearAll(this)
-                KeystoreManager.deleteKey()
-                recreate()
-            }
-            .setNegativeButton("취소", null)
-            .show()
+    override fun onResume() {
+        super.onResume()
+        if (ParkingStateManager.isRegistered(this)) {
+            registerServiceCallbacks()
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 개발자 메뉴
-    // ─────────────────────────────────────────────────────────────────────────
+    override fun onDestroy() {
+        super.onDestroy()
+        handler.removeCallbacks(timerRunnable)
+        VehicleDataManager.release()
+    }
+
+    // ── 개발자 트리거 (헤더 5번 탭 → PIN → 디버그 메뉴) ─────────────────────
 
     private fun setupDevTrigger() {
         tvHeaderTitle.setOnClickListener {
@@ -635,106 +785,79 @@ class MainActivity : AppCompatActivity() {
                 showDevPinDialog()
             } else {
                 handler.postDelayed(devTapResetRunnable, DEV_TAP_WINDOW_MS)
-                if (devTapCount >= 2) {
-                    Toast.makeText(this, "${DEV_TAP_TARGET - devTapCount}번 더", Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
 
     private fun showDevPinDialog() {
-        val etPin = EditText(this).apply {
-            hint = "코드 입력"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-            setPadding(40, 24, 40, 24)
-        }
-        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-            .setTitle("개발자 인증")
-            .setView(etPin)
-            .setPositiveButton("확인") { dialog, _ ->
-                if (etPin.text.toString() == DEV_PIN) { dialog.dismiss(); showDevMenu() }
-                else Toast.makeText(this, "코드가 올바르지 않습니다", Toast.LENGTH_SHORT).show()
+        val et = EditText(this).apply { hint = "PIN 입력"; inputType = 18 }
+        androidx.appcompat.app.AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+            .setTitle("🔧 개발자 모드")
+            .setView(et)
+            .setPositiveButton("확인") { _, _ ->
+                if (et.text.toString() == DEV_PIN) showDevMenu()
+                else Toast.makeText(this, "PIN 오류", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("취소", null)
             .show()
     }
 
     private fun showDevMenu() {
-        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+        val items = arrayOf(
+            "Mock 입차 확정",
+            "Mock 결제 완료",
+            "등록 초기화 (즉시)",
+            "MQTT 재연결",
+            "VIN 표시"
+        )
+        androidx.appcompat.app.AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
             .setTitle("개발자 메뉴")
-            .setItems(arrayOf(
-                "앱 초기화 (등록 해제)",
-                "거래 내역 삭제",
-                "MQTT 재연결",
-                "입차 시뮬레이션 (강남 아이파킹)",
-                "출차 시뮬레이션 (parked → false)",
-                "VIN / 상태 확인"
-            )) { _, which ->
-                when (which) {
-                    0 -> confirmReset()
-                    1 -> { TransactionStore.clear(this); refreshTransactionHistory() }
+            .setItems(items) { _, idx ->
+                when (idx) {
+                    0 -> {
+                        ParkingStateManager.saveParkingState(this, true, "DEV_LOT_01", "sess_dev_001")
+                        showRegisteredState()
+                        Toast.makeText(this, "Mock 입차 확정 완료", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> {
+                        ParkingStateManager.saveParkingState(this, false)
+                        showRegisteredState()
+                        Toast.makeText(this, "Mock 결제 완료", Toast.LENGTH_SHORT).show()
+                    }
                     2 -> {
-                        MqttManager.disconnect()
-                        Thread { MqttManager.connect(vin) }.start()
+                        ParkingStateManager.setRegistered(this, false)
+                        recreate()
                     }
                     3 -> {
-                        val lotId = "강남 아이파킹"
-                        val sid   = "sim_${System.currentTimeMillis()}"
-                        ParkingStateManager.saveParkingState(this, true, lotId, sid)
-                        parkingStartMs = System.currentTimeMillis()
-                        showParkingActiveSection(lotId)
-                        tvPaymentStatus.text = "주차 중 — 지금 정산하기 가능"
-                        tvStatusDot.setTextColor(0xFFFFD700.toInt())
-                        showEntryConfirmed(lotId)
+                        Thread { MqttManager.connect(vin) }.start()
+                        Toast.makeText(this, "MQTT 재연결 시도", Toast.LENGTH_SHORT).show()
                     }
-                    4 -> {
-                        ParkingStateManager.saveParkingState(this, false)
-                        hideParkingActiveSection()
-                        tvPaymentStatus.text = "주차장 접근 시 자동 결제됩니다"
-                        tvStatusDot.setTextColor(0xFF00FF88.toInt())
-                        Toast.makeText(this, "출차 처리 완료", Toast.LENGTH_SHORT).show()
-                    }
-                    5 -> AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-                        .setTitle("차량 정보")
-                        .setMessage(
-                            "VIN: $vin\n" +
-                                    "번호판: ${ParkingStateManager.getPlateNumber(this) ?: "—"}\n" +
-                                    "parked: ${ParkingStateManager.isParked(this)}\n" +
-                                    "lot_id: ${ParkingStateManager.getLotId(this)}\n" +
-                                    "session_id: ${ParkingStateManager.getSessionId(this)}\n" +
-                                    "MQTT: ${if (MqttManager.isConnected()) "연결됨" else "끊김"}"
-                        )
-                        .setPositiveButton("확인", null)
-                        .show()
+                    4 -> Toast.makeText(this, "VIN: $vin", Toast.LENGTH_LONG).show()
                 }
             }
             .show()
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 유틸
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── 등록 초기화 ───────────────────────────────────────────────────────────
 
-    private fun maskVin(vin: String): String =
-        if (vin.length <= 5) vin else vin.take(5) + "•".repeat(vin.length - 5)
-
-    override fun onResume() {
-        super.onResume()
-        // Activity가 포그라운드로 돌아올 때 콜백 재등록 (서비스는 계속 실행 중)
-        if (ParkingStateManager.isRegistered(this)) {
-            registerServiceCallbacks()
-        }
+    private fun confirmReset() {
+        androidx.appcompat.app.AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+            .setTitle("⚠ 등록 해제")
+            .setMessage("등록된 카드와 차량 정보를 모두 삭제합니다.\n계속하시겠습니까?")
+            .setPositiveButton("삭제") { _, _ ->
+                CarPayInService.stop(this)
+                ParkingStateManager.setRegistered(this, false)
+                ParkingStateManager.saveParkingState(this, false)
+                recreate()
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        handler.removeCallbacksAndMessages(null)
-        // 서비스 UI 콜백 해제 (서비스 자체는 계속 백그라운드에서 실행)
-        CarPayInService.onFeeUpdated       = null
-        CarPayInService.onParkingConfirmed = null
-        CarPayInService.onPaymentComplete  = null
-        CarPayInService.onConnectionChanged = null
+    // ── VIN 마스킹 ────────────────────────────────────────────────────────────
+
+    private fun maskVin(vin: String): String {
+        if (vin.length < 8) return "VIN: ----"
+        return "VIN: ${vin.take(5)}•••••••••••"
     }
 }

@@ -131,7 +131,7 @@ object ParkingStateManager {
             .putString("lot_id", if (parked) lotId else "")
             .putString("session_id", if (parked) sessionId else "")
             .apply()
-        Log.d(TAG, "주차 상태 저장: parked=$parked, lot=$lotId, session=$sessionId")
+        Log.d(TAG, "주차 상태 저장: parked=$parked, lot=$lotId")
     }
 
     fun isParked(context: Context): Boolean =
@@ -142,10 +142,4 @@ object ParkingStateManager {
 
     fun getSessionId(context: Context): String =
         getPrefs(context).getString("session_id", "") ?: ""
-
-    // ── 전체 초기화 (개발자 메뉴용) ──────────────────────────────────────────
-    fun clearAll(context: Context) {
-        getPrefs(context).edit().clear().apply()
-        Log.d(TAG, "모든 보안 데이터 초기화")
-    }
 }
