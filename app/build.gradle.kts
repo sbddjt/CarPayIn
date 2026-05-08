@@ -39,6 +39,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    implementation("com.google.zxing:core:3.5.1")
 
     // Android Car API 스텁 (컴파일 전용)
     // 1순위: 프로젝트 로컬 스텁 JAR (generate_car_stubs.py 로 생성)

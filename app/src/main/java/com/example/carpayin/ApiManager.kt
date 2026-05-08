@@ -403,4 +403,28 @@ object ApiManager {
             conn.disconnect()
         }
     }
+
+    data class SessionStatusResult(
+        val isComplete: Boolean,
+        val accessToken: String = "",
+        val refreshToken: String = "",
+        val plateNumber: String = ""
+    )
+
+    fun checkLoginSession(sessionId: String): SessionStatusResult {
+        // GET /auth/session/{sessionId}/status (백엔드에 구현해야 할 API)
+        val response = getJson(URL("$BASE_URL/auth/session/$sessionId/status"))
+
+        val status = response.optString("status", "pending")
+        return if (status == "complete") {
+            SessionStatusResult(
+                isComplete = true,
+                accessToken = response.getString("access_token"),
+                refreshToken = response.getString("refresh_token"),
+                plateNumber = response.getString("plate_number")
+            )
+        } else {
+            SessionStatusResult(isComplete = false)
+        }
+    }
 }
