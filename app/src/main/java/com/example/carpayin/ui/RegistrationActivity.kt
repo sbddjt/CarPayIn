@@ -2,6 +2,7 @@ package com.example.carpayin.ui
 
 import com.example.carpayin.R
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Bundle
@@ -176,34 +177,24 @@ class RegistrationActivity : Activity() {
 
     private fun onLoginComplete(result: ApiManager.SessionStatusResult) {
         isPolling = false
-        tvPollingStatus.text = "연동 완료!"
-        tvSubMessage.text    = "잠시 후 이동합니다..."
+        tvPollingStatus.text = "마이현대 연동 완료!"
+        tvSubMessage.text    = "카드 등록 화면으로 이동합니다..."
 
         // ── VIN 매칭: VHAL VIN과 마이현대 차량 목록 비교 ─────────────────────
         val matchedVin = result.vinList.firstOrNull { it.vin == vin }
-            ?: result.vinList.firstOrNull()   // 일치하는 VIN 없으면 첫 번째 차량 선택
+            ?: result.vinList.firstOrNull()
 
-        val selectedVin    = matchedVin?.vin    ?: vin
-        val selectedCarId  = matchedVin?.carId  ?: ""
-        val selectedModel  = matchedVin?.modelName ?: result.modelName
+        val selectedVin   = matchedVin?.vin    ?: vin
+        val selectedCarId = matchedVin?.carId  ?: ""
+        val selectedModel = matchedVin?.modelName ?: result.modelName
 
-        // ── 데이터 저장 ───────────────────────────────────────────────────────
-        ParkingStateManager.saveTokens(
-            this,
-            result.accessToken,
-            result.refreshToken
-        )
+        // ── 토큰 / 차량 정보 저장 ─────────────────────────────────────────────
+        ParkingStateManager.saveTokens(this, result.accessToken, result.refreshToken)
         ParkingStateManager.savePlateNumber(this, result.plateNumber)
-        ParkingStateManager.saveHyundaiUserInfo(
-            this,
-            result.userId,
-            result.userName,
-            selectedModel
-        )
-        ParkingStateManager.saveCardInfo(this, result.cardLastFour, result.cardBrand)
-        ParkingStateManager.setRegistered(this, true)
+        ParkingStateManager.saveHyundaiUserInfo(this, result.userId, result.userName, selectedModel)
+        // 카드 정보는 PG WebView 등록 완료 후 저장 (아직 미등록)
 
-        // ── 백엔드에 최종 VIN 확정 알림 ──────────────────────────────────────
+        // ── VIN 확정 알림 ──────────────────────────────────────────────────────
         if (selectedCarId.isNotEmpty()) {
             Thread {
                 runCatching {
@@ -216,12 +207,38 @@ class RegistrationActivity : Activity() {
         }
 
         val displayName = result.userName.ifEmpty { "차량" }
-        Toast.makeText(this, "$displayName 님, 연동 완료!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "$displayName 님, 차량 인증 완료! 카드를 등록해 주세요.", Toast.LENGTH_SHORT).show()
 
+        // ── 카드 등록 화면으로 이동 ───────────────────────────────────────────
+        // Mock PG WebView 카드 등록 (최초 1회) → 이후 결제는 완전 자동
         handler.postDelayed({
-            setResult(RESULT_OK)
+            val intent = Intent(this, CardRegistrationActivity::class.java).apply {
+                putExtra(CardRegistrationActivity.EXTRA_VIN,          selectedVin)
+                putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, result.accessToken)
+                putExtra(CardRegistrationActivity.EXTRA_USER_NAME,    displayName)
+            }
+            startActivityForResult(intent, REQ_CARD_REG)
+        }, 800)
+    }
+
+    @Deprecated("Use registerForActivityResult")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CARD_REG) {
+            if (resultCode == RESULT_OK) {
+                // 카드 등록 완료 → 앱 등록 상태 확정
+                ParkingStateManager.setRegistered(this, true)
+                setResult(RESULT_OK)
+            } else {
+                // 카드 등록 취소 — 등록 미완료 상태로 복귀
+                setResult(RESULT_CANCELED)
+            }
             finish()
-        }, 1_000)
+        }
+    }
+
+    companion object {
+        private const val REQ_CARD_REG = 200
     }
 
     override fun onDestroy() {

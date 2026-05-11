@@ -1,23 +1,15 @@
 from pydantic import BaseModel
-from typing import Optional
 
 # ── 인증 ───────────────────────────────────────────────────────────────────
-class RegisterVehicleRequest(BaseModel):
-    vin: str
-    cert_hash: str = "MOCK_CERT_HASH"
 
-class ConfirmPlateRequest(BaseModel):
+class ConfirmVinRequest(BaseModel):
+    """AAOS 앱 → 마이현대 OAuth 완료 후 최종 VIN + car_id 확정"""
     vin: str
-    plate: str
-
-class CardWebhookRequest(BaseModel):
-    order_id: str
-    customer_key: str
-    last_four: str
-    card_brand: str
-    hmac: str
+    car_id: str
+    access_token: str
 
 # ── 입차 ───────────────────────────────────────────────────────────────────
+
 class PreNotifyRequest(BaseModel):
     vin: str
     plate: str
@@ -32,14 +24,13 @@ class EntryWebhookRequest(BaseModel):
     timestamp: int
 
 # ── 결제 ───────────────────────────────────────────────────────────────────
-class FeeQueryRequest(BaseModel):
-    session_id: str
 
 class PaymentRequest(BaseModel):
     session_id: str
     amount: int
 
 # ── 주차장 PMS paid 전달 ───────────────────────────────────────────────────
+
 class PaidNotifyRequest(BaseModel):
     plate: str
     lot_id: str

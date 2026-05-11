@@ -10,11 +10,46 @@ from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from datetime import datetime
-import sqlite3, uuid, httpx
+import sqlite3, uuid, httpx, os, json, threading
 from contextlib import contextmanager
+import paho.mqtt.client as mqtt
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = os.environ.get("BACKEND_URL",  "http://localhost:8000")
+MQTT_HOST   = os.environ.get("MQTT_HOST",    "localhost")
+MQTT_PORT   = int(os.environ.get("MQTT_PORT", "1883"))
 DB_PATH     = "pms.db"
+
+# ── MQTT (Webots 차단기 제어) ─────────────────────────────────────────────
+_mqtt_client    = mqtt.Client()
+_mqtt_connected = False
+
+def _on_mqtt_connect(client, userdata, flags, rc):
+    global _mqtt_connected
+    _mqtt_connected = (rc == 0)
+    if _mqtt_connected:
+        print(f"[PMS MQTT] 브로커 연결 성공 ({MQTT_HOST}:{MQTT_PORT})")
+    else:
+        print(f"[PMS MQTT] 연결 실패 rc={rc}")
+
+_mqtt_client.on_connect = _on_mqtt_connect
+
+def _mqtt_start():
+    try:
+        _mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+        _mqtt_client.loop_forever()
+    except Exception as e:
+        print(f"[PMS MQTT] 브로커 없음, 차단기 MQTT 비활성화: {e}")
+
+def _publish_barrier(gate: str, action: str):
+    """Webots 차단기 컨트롤러로 MQTT 명령 발행"""
+    if not _mqtt_connected:
+        print(f"[PMS MQTT 스킵] barrier gate={gate} action={action}")
+        return
+    _mqtt_client.publish(
+        "carpayin/barrier",
+        json.dumps({"gate": gate, "action": action}, ensure_ascii=False)
+    )
+    print(f"[PMS MQTT] barrier gate={gate} action={action} 발행")
 
 # ── DB ────────────────────────────────────────────────────────────────────
 @contextmanager
@@ -61,6 +96,7 @@ def init_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    threading.Thread(target=_mqtt_start, daemon=True).start()
     print("[PMS] Mock 아이파킹 PMS 시작 (포트 8001)")
     yield
 
@@ -114,8 +150,9 @@ async def lpr_event(req: LprEventRequest):
     - 출구: paid 상태 확인 후 차단기 열기
     """
     if req.gate == "entry":
-        # 모든 차량 차단기 즉시 오픈
+        # 모든 차량 차단기 즉시 오픈 (현장 처리 — 클라우드 응답 대기 없음)
         _set_barrier("entry", "open")
+        _publish_barrier("entry", "open")   # Webots 차단기 제어
         print(f"[PMS LPR] 입구 감지: {req.plate} → 차단기 즉시 개방")
 
         # 사전 등록 차량인지 확인
@@ -161,6 +198,7 @@ async def lpr_event(req: LprEventRequest):
 
         if record and record["status"] == "paid":
             _set_barrier("exit", "open")
+            _publish_barrier("exit", "open")    # Webots 차단기 제어
             print(f"[PMS LPR] 출구 감지: {req.plate} → paid 확인 → 차단기 개방")
             return {"status": "paid", "barrier": "open"}
         else:

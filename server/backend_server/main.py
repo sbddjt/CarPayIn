@@ -1,45 +1,47 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from contextlib import asynccontextmanager
-import uuid, time, hashlib, hmac as hmac_lib, json
+import uuid, time, hashlib, hmac as hmac_lib, json, base64
 from datetime import datetime
 from urllib.parse import urlencode
 import httpx
 
-from database import init_db, get_conn
+from database import init_db, get_conn, print_schema
 from models import (
-    RegisterVehicleRequest, ConfirmPlateRequest, CardWebhookRequest,
+    ConfirmVinRequest,
     PreNotifyRequest, EntryWebhookRequest,
     PaymentRequest, PaidNotifyRequest
 )
 import mqtt_service
 
-PARKING_PMS_URL = "http://localhost:8001"
-MOCK_PG_URL     = "http://localhost:9000"
+import os
+PARKING_PMS_URL = os.environ.get("PARKING_PMS_URL", "http://localhost:8001")
+MOCK_PG_URL     = os.environ.get("MOCK_PG_URL",     "http://localhost:9000")
 HMAC_SECRET     = "mock_pg_secret_key_carpayin"
 
 # ── 현대 개발자 포털 설정 ───────────────────────────────────────────────────
 HYUNDAI_CLIENT_ID     = "26b816d9-7764-42bd-bdbf-ff49f2e33098"
 HYUNDAI_CLIENT_SECRET = "VcFPoKezkzlyhv0C4V3dMhIRyUz91OG70jdiAJLrCPd6rIPD"
 
-# ★ ngrok 실행 후 발급된 URL로 교체 (예: https://abc123.ngrok-free.app)
-# ngrok http 8000 실행 → Forwarding URL 복사 → 아래에 붙여넣기
-NGROK_URL             = "https://pretext-armless-wieldable.ngrok-free.dev"
-HYUNDAI_REDIRECT_URI  = f"{NGROK_URL}/auth/redirect"
+# ngrok URL — 환경변수로 주입하거나 아래 직접 교체
+# export NGROK_URL=https://xxxx.ngrok-free.app  (서버 실행 전)
+NGROK_URL            = os.environ.get("NGROK_URL", "https://pretext-armless-wieldable.ngrok-free.dev")
+HYUNDAI_REDIRECT_URI = f"{NGROK_URL}/auth/redirect"
 
-# 현대 계정 API (kr-ccapi)
+# 현대 계정 API
 HYUNDAI_BASE_URL     = "https://prd.kr-ccapi.hyundai.com/api/v1"
 HYUNDAI_AUTH_URL     = f"{HYUNDAI_BASE_URL}/user/oauth2/authorize"
 HYUNDAI_TOKEN_URL    = f"{HYUNDAI_BASE_URL}/user/oauth2/token"
 HYUNDAI_USERINFO_URL = f"{HYUNDAI_BASE_URL}/user/profile"
-
-# 현대 차량 API
 HYUNDAI_VEHICLE_LIST_URL = f"{HYUNDAI_BASE_URL}/spa/vehicles"
+
+
 
 # ── 앱 시작 ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    print_schema()   # ← 실제 DB 경로 + 컬럼 목록 출력
     mqtt_service.start()
     print("[백엔드] CarPayIn Backend Server 시작 (포트 8000)")
     yield
@@ -47,23 +49,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="CarPayIn Backend",
     description="하이브리드 클라우드 인카 통합 페이먼트 백엔드",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan
 )
 
 # ── 헬스 ──────────────────────────────────────────────────────────────────
 @app.get("/", tags=["Health"])
 def health():
-    return {"status": "ok", "service": "CarPayIn Backend"}
+    return {"status": "ok", "service": "CarPayIn Backend", "version": "2.0.0"}
+
 
 # ══════════════════════════════════════════════════════════════════════════
-# 현대 OAuth 흐름
+# 마이현대 OAuth 흐름
 # ══════════════════════════════════════════════════════════════════════════
 
-@app.get("/auth/hyundai/start", tags=["현대 OAuth"])
+@app.get("/auth/hyundai/start", tags=["마이현대 OAuth"])
 async def hyundai_start(session_id: str, vin: str = ""):
     """
-    AAOS QR 스캔 → 모바일 브라우저가 이 URL을 엶
+    AAOS QR 스캔 → 스마트폰 브라우저가 이 URL을 엶
     session_id + vin을 DB에 저장하고 현대 OAuth 페이지로 리디렉션
     """
     now = datetime.now().isoformat()
@@ -78,14 +81,13 @@ async def hyundai_start(session_id: str, vin: str = ""):
         "redirect_uri":  HYUNDAI_REDIRECT_URI,
         "response_type": "code",
         "scope":         "openid profile",
-        "state":         session_id,   # 콜백에서 어느 AAOS 세션인지 찾기 위해 그대로 전달
+        "state":         session_id,
     })
-    hyundai_auth_url = f"{HYUNDAI_AUTH_URL}?{params}"
-    print(f"[QR 시작] session={session_id[:8]}… vin={vin[:8] if vin else '없음'}… → 현대 OAuth 리디렉션")
-    return RedirectResponse(hyundai_auth_url)
+    print(f"[QR 시작] session={session_id[:8]}… vin={vin[:8] if vin else '없음'}…")
+    return RedirectResponse(f"{HYUNDAI_AUTH_URL}?{params}")
 
 
-@app.get("/auth/session/{session_id}/status", tags=["현대 OAuth"])
+@app.get("/auth/session/{session_id}/status", tags=["마이현대 OAuth"])
 def session_status(session_id: str):
     """
     AAOS 앱 폴링 (2초 간격) — QR 로그인 완료 여부 확인
@@ -105,6 +107,20 @@ def session_status(session_id: str):
     except Exception:
         pass
 
+    # 차량 테이블에서 카드 정보 조회 (OAuth 완료 시 저장됨)
+    card_last_four = "0000"
+    card_brand     = "현대카드"
+    matched_vin = row["vin"] or (vin_list[0]["vin"] if vin_list else "")
+    if matched_vin:
+        with get_conn() as con:
+            vrow = con.execute(
+                "SELECT card_last_four, card_brand FROM vehicles WHERE vin=?",
+                (matched_vin,)
+            ).fetchone()
+        if vrow:
+            card_last_four = vrow["card_last_four"] or "0000"
+            card_brand     = vrow["card_brand"]     or "현대카드"
+
     return {
         "status":         "complete",
         "access_token":   row["access_token"],
@@ -114,29 +130,27 @@ def session_status(session_id: str):
         "user_name":      row["user_name"],
         "model_name":     row["model_name"],
         "vin_list":       vin_list,
-        "card_last_four": row["card_last_four"],
-        "card_brand":     row["card_brand"],
+        "card_last_four": card_last_four,
+        "card_brand":     card_brand,
     }
 
 
-@app.get("/auth/redirect", tags=["현대 OAuth"])
+@app.get("/auth/redirect", tags=["마이현대 OAuth"])
 async def hyundai_auth_redirect(code: str = None, state: str = None, error: str = None):
     """
-    현대 계정 API → 로그인 완료 후 authorization code + state(=session_id) 수신
+    현대 OAuth → 로그인 완료 후 authorization code + state(=session_id) 수신
     OAuth 교환 완료 후 login_sessions 테이블을 'complete' 로 업데이트
     → AAOS 앱 폴링이 이를 감지하고 자동으로 연동 완료 처리
     """
     if error:
         print(f"[현대 OAuth] 로그인 오류: {error}")
         return HTMLResponse(f"<h3>로그인 실패: {error}</h3>", status_code=400)
-
     if not code:
         return HTMLResponse("<h3>Authorization Code 없음</h3>", status_code=400)
 
     print(f"[현대 OAuth] /auth/redirect — code={code[:8]}… session={state[:8] if state else '없음'}…")
 
     try:
-        # VHAL VIN은 state로 session_id를 찾아 DB에서 꺼냄
         vin_vhal = ""
         if state:
             with get_conn() as con:
@@ -148,7 +162,6 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
 
         result = await _exchange_hyundai_code(code, vin_vhal=vin_vhal)
 
-        # state = AAOS QR session_id → login_sessions 완료 처리
         if state:
             model_name = ""
             if result.get("vin_list"):
@@ -163,8 +176,7 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
                     UPDATE login_sessions SET
                         status='complete',
                         access_token=?, refresh_token=?, plate_number=?,
-                        user_id=?, user_name=?, model_name=?,
-                        vin_list_json=?, card_last_four=?, card_brand=?
+                        user_id=?, user_name=?, model_name=?, vin_list_json=?
                     WHERE session_id=?
                 """, (
                     result["access_token"],
@@ -174,126 +186,140 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
                     result.get("user_name", ""),
                     model_name,
                     json.dumps(result.get("vin_list", [])),
-                    "****",
-                    "현대카드",
                     state,
                 ))
             print(f"[QR 완료] session={state[:8]}… → AAOS 앱 폴링 해제됨")
 
         return HTMLResponse("""
             <html>
-            <head><meta charset="utf-8"></head>
-            <body style="font-family:sans-serif;text-align:center;padding:40px;">
-              <h2>✅ 마이현대 로그인 완료</h2>
-              <p>차량 HU 화면으로 돌아가세요.<br>앱이 자동으로 연동됩니다.</p>
+            <head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              body { font-family: -apple-system, sans-serif; text-align: center;
+                     padding: 60px 20px; background: #f5f5f5; }
+              .card { background: white; border-radius: 16px; padding: 40px;
+                      max-width: 320px; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+              h2 { color: #00AA55; margin-bottom: 12px; }
+              p  { color: #555; line-height: 1.6; }
+            </style>
+            </head>
+            <body>
+              <div class="card">
+                <h2>✅ 마이현대 로그인 완료</h2>
+                <p>차량 화면으로 돌아가세요.<br>앱이 자동으로 연동됩니다.</p>
+              </div>
             </body>
             </html>
         """)
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         print(f"[현대 OAuth] 처리 실패: {e}")
-        return HTMLResponse(f"<h3>처리 오류: {e}</h3>", status_code=500)
+        print(f"[현대 OAuth] 전체 traceback:\n{tb}")
+        return HTMLResponse(
+            f"<h3>처리 오류: {e}</h3><pre style='text-align:left;font-size:11px'>{tb}</pre>",
+            status_code=500
+        )
 
 
-@app.post("/auth/hyundai/callback", tags=["현대 OAuth"])
-async def hyundai_callback(request: Request):
+@app.post("/auth/confirm-vin", tags=["마이현대 OAuth"])
+def confirm_vin(req: ConfirmVinRequest):
     """
-    AAOS 앱 → WebView에서 intercept한 authorization code를 백엔드로 전달
-    백엔드가 현대 API 서버 투 서버 호출로 VIN + 차량 정보 조회
-    앱과 서버 사이 인터넷 구간에는 code만 오가고 VIN은 노출되지 않음
+    AAOS 앱 → OAuth 완료 후 최종 선택된 VIN + car_id 확정 알림
+    (차량이 여러 대 등록된 계정에서 매칭 VIN을 서버에 명시적으로 저장)
     """
-    body = await request.json()
-    code     = body.get("code")
-    vin_vhal = body.get("vin", "")       # VHAL에서 읽은 VIN (교차 검증용)
-    cert_hash = body.get("cert_hash", "")
-
-    if not code:
-        raise HTTPException(400, "authorization code 필요")
-
-    print(f"[현대 OAuth] /auth/hyundai/callback — code: {code[:8]}… VHAL VIN: {vin_vhal[:8]}…")
-
-    result = await _exchange_hyundai_code(code, vin_vhal=vin_vhal, cert_hash=cert_hash)
-
-    print(f"[현대 OAuth] 완료 — user_id: {result['user_id'][:6]}… VIN 수: {len(result['vin_list'])}개")
-    return result
+    with get_conn() as con:
+        existing = con.execute(
+            "SELECT vin FROM vehicles WHERE vin=?", (req.vin,)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(404, "등록되지 않은 VIN — OAuth 흐름을 먼저 완료하세요")
+        con.execute(
+            "UPDATE vehicles SET hyundai_car_id=? WHERE vin=?",
+            (req.car_id, req.vin)
+        )
+    print(f"[VIN 확정] vin={req.vin[:8]}… car_id={req.car_id}")
+    return {"status": "ok", "vin": req.vin}
 
 
-@app.get("/data/redirect", tags=["현대 OAuth"])
-async def hyundai_data_redirect(code: str = None, error: str = None):
-    """현대 데이터 API OAuth redirect 수신"""
-    if error:
-        return HTMLResponse(f"<h3>데이터 API 오류: {error}</h3>", status_code=400)
-    print(f"[현대 데이터] /data/redirect — code: {(code or '')[:8]}…")
-    return HTMLResponse("<h3>데이터 API 연동 완료</h3>")
+@app.post("/auth/refresh", tags=["마이현대 OAuth"])
+def refresh_token(request_body: dict):
+    """액세스 토큰 갱신"""
+    refresh = request_body.get("refresh_token", "")
+    if not refresh:
+        raise HTTPException(400, "refresh_token 필요")
+
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT vin FROM tokens WHERE refresh_token=?", (refresh,)
+        ).fetchone()
+
+    if not row:
+        raise HTTPException(401, "유효하지 않은 refresh_token")
+
+    new_access  = f"at_{uuid.uuid4().hex}"
+    new_refresh = f"rt_{uuid.uuid4().hex}"
+    now = datetime.now().isoformat()
+
+    with get_conn() as con:
+        con.execute("""
+            UPDATE tokens SET access_token=?, refresh_token=?, issued_at=?
+            WHERE refresh_token=?
+        """, (new_access, new_refresh, now, refresh))
+
+    return {"access_token": new_access, "refresh_token": new_refresh}
 
 
-@app.get("/data/callback", tags=["현대 OAuth"])
-@app.post("/data/callback", tags=["현대 OAuth"])
-async def hyundai_data_callback(request: Request):
-    """현대 데이터 API 콜백 (차량 데이터 push 수신)"""
-    body = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    print(f"[현대 데이터] /data/callback 수신: {body}")
-    return {"status": "ok"}
+# ── 내부: 현대 OAuth code 교환 ────────────────────────────────────────────
 
-
-# ── 현대 OAuth 내부 로직 ───────────────────────────────────────────────────
-
-async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str = "") -> dict:
+async def _exchange_hyundai_code(code: str, vin_vhal: str = "") -> dict:
     """
-    Authorization Code → 현대 access_token 교환 → 차량 정보 조회 → CarPayIn 토큰 발급
+    Authorization Code → 현대 access_token 교환 → 차량 정보 조회
+    → Mock 카드 정보 생성 → CarPayIn 토큰 발급 → DB 저장
     """
     async with httpx.AsyncClient() as client:
+
+        basic_token = base64.b64encode(
+            f"{HYUNDAI_CLIENT_ID}:{HYUNDAI_CLIENT_SECRET}".encode()
+        ).decode()
 
         # 1단계: authorization code → 현대 access_token
         token_res = await client.post(
             HYUNDAI_TOKEN_URL,
             data={
                 "grant_type":   "authorization_code",
-                "client_id":    HYUNDAI_CLIENT_ID,
-                "client_secret": HYUNDAI_CLIENT_SECRET,
-                "redirect_uri": HYUNDAI_REDIRECT_URI,
                 "code":         code,
+                "redirect_uri": HYUNDAI_REDIRECT_URI,
             },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Authorization": f"Basic {basic_token}",
+                "Content-Type":  "application/x-www-form-urlencoded",
+            },
             timeout=10.0
         )
+        print(f"[현대 토큰] status={token_res.status_code}")
+        print(f"[현대 토큰] redirect_uri 사용값: {HYUNDAI_REDIRECT_URI}")
+        print(f"[현대 토큰] 응답 body: {token_res.text[:400]}")
         if token_res.status_code != 200:
-            raise HTTPException(502, f"현대 토큰 발급 실패: {token_res.text}")
+            raise HTTPException(502, f"현대 토큰 발급 실패 (status={token_res.status_code}): {token_res.text}")
 
-        token_data         = token_res.json()
-        hyundai_access     = token_data["access_token"]
-        hyundai_refresh    = token_data.get("refresh_token", "")
+        token_data      = token_res.json()
+        hyundai_access  = token_data["access_token"]
+        hyundai_refresh = token_data.get("refresh_token", "")
 
-        # 2단계: userinfo → user_id 조회
+        # 2단계: 사용자 프로필 조회
         userinfo_res = await client.get(
             HYUNDAI_USERINFO_URL,
             headers={"Authorization": f"Bearer {hyundai_access}"},
             timeout=10.0
         )
         user_info = userinfo_res.json() if userinfo_res.status_code == 200 else {}
-        print(f"[현대 profile] 응답 필드: {list(user_info.keys())}")
-        print(f"[현대 profile] 전체: {user_info}")
+        print(f"[현대 profile] 응답: {user_info}")
 
-        # 현대 API 필드명 우선순위로 추출
-        user_id = (
-            user_info.get("userId") or
-            user_info.get("sub") or
-            user_info.get("user_id") or
-            str(uuid.uuid4())
-        )
-        user_name = (
-            user_info.get("name") or
-            user_info.get("userName") or
-            user_info.get("nickname") or
-            user_info.get("given_name") or
-            ""
-        )
+        user_id   = user_info.get("id", str(uuid.uuid4()))
+        user_name = user_info.get("name", "")
 
-        # 3단계: 차량 리스트 조회 → VIN + car_id
-        # TODO: 실제 현대 차량 API 엔드포인트 확인 후 URL 수정
+        # 3단계: 차량 리스트 조회
         vin_list = []
         try:
             vehicle_res = await client.get(
@@ -311,12 +337,11 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str =
                         "year":       v.get("year", 0),
                     })
         except Exception as e:
-            print(f"[현대 API] 차량 리스트 조회 실패 (Mock fallback): {e}")
-            # 차량 API 미승인 시 VHAL VIN으로 fallback
+            print(f"[현대 API] 차량 리스트 조회 실패 (VHAL VIN fallback): {e}")
             if vin_vhal:
-                vin_list = [{"vin": vin_vhal, "car_id": f"car_{vin_vhal[:8]}", "model_name": "Unknown", "year": 0}]
+                vin_list = [{"vin": vin_vhal, "car_id": f"car_{vin_vhal[:8]}", "model_name": "Hyundai", "year": 0}]
 
-        # 4단계: VHAL VIN 교차 검증 (vin_vhal이 있으면 목록에 있는지 확인)
+        # 4단계: VHAL VIN 교차 검증
         matched_vin = vin_vhal
         if vin_vhal and vin_list:
             matched = next((v for v in vin_list if v["vin"] == vin_vhal), None)
@@ -331,41 +356,46 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str =
         car_info = next((v for v in vin_list if v["vin"] == matched_vin), {})
 
         # 5단계: 번호판 조회 (Mock 국토부 API)
+        # 실제 서비스: 본인인증 후 국토부 자동차등록정보 API 호출
         mock_plates = {
             "TESTVIN001": "123가4567",
             "TESTVIN002": "456나8901",
         }
         plate = mock_plates.get(matched_vin, f"000테{abs(hash(matched_vin)) % 9999:04d}")
 
-        # 6단계: DB 저장 + CarPayIn 토큰 발급
+        # 6단계: CarPayIn 토큰 발급
+        # 카드 정보는 이 시점에서 등록하지 않음 — Mock PG WebView 카드 등록 완료 후 /webhook/card로 수신
         access_token  = f"at_{uuid.uuid4().hex}"
         refresh_token = f"rt_{uuid.uuid4().hex}"
         now = datetime.now().isoformat()
 
-        # 마이현대에 등록된 결제 수단을 대표하는 billing_key (Mock)
-        # 실제 서비스: 현대 페이 API에서 payment token 수신
-        billing_key = f"hbk_{hashlib.sha256(user_id.encode()).hexdigest()[:24]}"
-
         with get_conn() as con:
             con.execute("""
                 INSERT OR REPLACE INTO vehicles
-                    (vin, plate, cert_hash, customer_key, payment_method_id,
+                    (vin, plate, customer_key, payment_method_id,
+                     card_last_four, card_brand,
                      registered_at, hyundai_user_id, hyundai_car_id, model_name, year)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (matched_vin, plate, cert_hash, billing_key, f"pm_{billing_key[:12]}",
-                  now, user_id, car_info.get("car_id",""), car_info.get("model_name",""), car_info.get("year",0)))
-
+                VALUES (?, ?, '', '',
+                        '0000', '',
+                        ?, ?, ?, ?, ?)
+            """, (
+                matched_vin, plate,
+                now, user_id,
+                car_info.get("car_id", ""),
+                car_info.get("model_name", ""),
+                car_info.get("year", 0)
+            ))
             con.execute("""
                 INSERT OR REPLACE INTO hyundai_tokens
                     (vin, hyundai_access_token, hyundai_refresh_token, issued_at)
                 VALUES (?, ?, ?, ?)
             """, (matched_vin, hyundai_access, hyundai_refresh, now))
-
             con.execute("""
                 INSERT OR REPLACE INTO tokens (vin, access_token, refresh_token, issued_at)
                 VALUES (?, ?, ?, ?)
             """, (matched_vin, access_token, refresh_token, now))
 
+    print(f"[OAuth 완료] vin={matched_vin[:8]}… user={user_id[:8]}… plate={plate} — 카드 등록 대기 중")
     return {
         "access_token":  access_token,
         "refresh_token": refresh_token,
@@ -377,118 +407,105 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str =
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 최초 등록 흐름
+# 카드 등록 (Mock PG WebView 흐름)
 # ══════════════════════════════════════════════════════════════════════════
 
-@app.post("/auth/register", tags=["등록"])
-def register_vehicle(req: RegisterVehicleRequest):
-    """
-    AAOS 앱 → VIN + 인증서 해시로 차량 등록
-    → 액세스 토큰 / 리프레시 토큰 발급
-    """
-    access_token  = f"at_{uuid.uuid4().hex}"
-    refresh_token = f"rt_{uuid.uuid4().hex}"
-    now = datetime.now().isoformat()
-
-    with get_conn() as con:
-        con.execute("""
-            INSERT OR REPLACE INTO vehicles (vin, cert_hash, registered_at)
-            VALUES (?, ?, ?)
-        """, (req.vin, req.cert_hash, now))
-        con.execute("""
-            INSERT OR REPLACE INTO tokens (vin, access_token, refresh_token, issued_at)
-            VALUES (?, ?, ?, ?)
-        """, (req.vin, access_token, refresh_token, now))
-
-    print(f"[등록] VIN={req.vin}")
-    return {
-        "access_token":  access_token,
-        "refresh_token": refresh_token,
-        "vin":           req.vin
-    }
-
-
-@app.get("/auth/plate/{vin}", tags=["등록"])
-def lookup_plate(vin: str):
-    """
-    Mock 국토부 API — VIN으로 번호판 조회
-    실제 환경에서는 본인인증 후 국토부 API 호출
-    """
-    mock_plates = {
-        "TESTVIN001": "123가4567",
-        "TESTVIN002": "456나8901",
-        "TESTVIN003": "789다2345",
-    }
-    plate = mock_plates.get(vin, f"000테{abs(hash(vin)) % 9999:04d}")
-    return {"vin": vin, "plate": plate}
-
-
-@app.post("/auth/confirm-plate", tags=["등록"])
-def confirm_plate(req: ConfirmPlateRequest):
-    """앱에서 번호판 확인 탭 → VIN-번호판 매핑 저장"""
-    with get_conn() as con:
-        existing = con.execute(
-            "SELECT vin FROM vehicles WHERE vin=?", (req.vin,)
-        ).fetchone()
-        if not existing:
-            raise HTTPException(404, "등록되지 않은 차량")
-        con.execute(
-            "UPDATE vehicles SET plate=? WHERE vin=?",
-            (req.plate, req.vin)
-        )
-    print(f"[번호판확인] VIN={req.vin} plate={req.plate}")
-    return {"status": "ok", "vin": req.vin, "plate": req.plate}
-
-
-@app.get("/card/order/{vin}", tags=["등록"])
+@app.get("/card/order/{vin}", tags=["카드 등록"])
 def create_card_order(vin: str):
     """
-    카드 등록 WebView 진입 전 order_id 생성
-    Redis 역할: DB에 order_id → VIN 임시 저장
+    앱 → Mock PG WebView URL 요청
+    order_id 생성 → DB 저장 → Mock PG 카드 입력 URL 반환
+
+    실제 서비스: 카드사별 PG사 라우팅 (현대카드→현대페이, 신한→KG이니시스 등)
+    데모: 단일 Mock PG 서버로 통합 처리
     """
-    order_id = f"ord_{uuid.uuid4().hex[:16]}"
     with get_conn() as con:
-        con.execute("""
-            INSERT OR REPLACE INTO pre_notify (plate, lot_id, vin, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (f"ORDER_{order_id}", "CARD_REG", vin, datetime.now().isoformat()))
-    print(f"[카드주문] VIN={vin} order_id={order_id}")
-    return {"order_id": order_id, "pg_url": f"http://localhost:9000/card-register?order_id={order_id}"}
+        row = con.execute("SELECT vin FROM vehicles WHERE vin=?", (vin,)).fetchone()
+        if not row:
+            raise HTTPException(404, "등록되지 않은 VIN — OAuth 먼저 완료하세요")
 
-
-@app.post("/webhook/card", tags=["등록"])
-def card_webhook(req: CardWebhookRequest):
-    """
-    Mock PG → 카드 등록 완료 웹훅
-    HMAC 검증 → customer_key 저장 → payment_method_id 발급
-    """
-    # HMAC 검증
-    payload_str = f'{{"card_brand":"{req.card_brand}","customer_key":"{req.customer_key}","last_four":"{req.last_four}","order_id":"{req.order_id}"}}'
-    expected = hmac_lib.new(
-        HMAC_SECRET.encode(), payload_str.encode(), hashlib.sha256
-    ).hexdigest()
-
-    if req.hmac != expected:
-        print(f"[카드웹훅] HMAC 불일치 — expected={expected[:16]}… got={req.hmac[:16]}…")
-        raise HTTPException(status_code=401, detail="HMAC 검증 실패")
-    print(f"[카드웹훅] HMAC 검증 성공 ✓")
-
-    payment_method_id = f"pm_{uuid.uuid4().hex[:16]}"
-
+    order_id = uuid.uuid4().hex[:20]   # 20자 hex (충분히 고유)
+    now = datetime.now().isoformat()
     with get_conn() as con:
-        con.execute("""
-            UPDATE vehicles SET customer_key=?, payment_method_id=?
-            WHERE vin=(
-                SELECT vin FROM pre_notify WHERE plate=?
-            )
-        """, (req.customer_key, payment_method_id, f"ORDER_{req.order_id}"))
         con.execute(
-            "DELETE FROM pre_notify WHERE plate=?",
-            (f"ORDER_{req.order_id}",)
+            "INSERT OR REPLACE INTO card_orders (order_id, vin, created_at) VALUES (?, ?, ?)",
+            (order_id, vin, now)
         )
 
-    print(f"[카드등록완료] order_id={req.order_id} pm={payment_method_id}")
-    return {"status": "ok", "payment_method_id": payment_method_id}
+    pg_url = f"{MOCK_PG_URL}/card-register?order_id={order_id}"
+    print(f"[카드주문] vin={vin[:8]}… order_id={order_id[:8]}… pg_url={pg_url}")
+    return {"order_id": order_id, "pg_url": pg_url}
+
+
+@app.post("/webhook/card", tags=["카드 등록"])
+async def card_webhook(request: Request):
+    """
+    Mock PG → 카드 등록 완료 웹훅
+    HMAC 서명 검증 → order_id로 VIN 조회 → customer_key + 카드 정보 저장
+
+    실제 서비스: TLS 뮤추얼 인증 또는 IP 화이트리스트로 PG사 검증
+    """
+    data = await request.json()
+    order_id      = data.get("order_id", "")
+    customer_key  = data.get("customer_key", "")
+    card_brand    = data.get("card_brand", "")
+    last_four     = data.get("last_four", "")
+    received_hmac = data.get("hmac", "")
+
+    # HMAC 검증 (Mock PG와 동일한 4개 필드 + sort_keys 직렬화)
+    hmac_payload = {
+        "card_brand":   card_brand,
+        "customer_key": customer_key,
+        "last_four":    last_four,
+        "order_id":     order_id,
+    }
+    payload_str = json.dumps(hmac_payload, sort_keys=True, separators=(',', ':'))
+    expected = hmac_lib.new(HMAC_SECRET.encode(), payload_str.encode(), hashlib.sha256).hexdigest()
+    if not hmac_lib.compare_digest(expected, received_hmac):
+        print(f"[카드웹훅] HMAC 불일치 — order_id={order_id[:8]}…")
+        raise HTTPException(403, "HMAC 검증 실패")
+
+    # order_id → VIN 조회
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT vin FROM card_orders WHERE order_id=?", (order_id,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, f"유효하지 않은 order_id: {order_id[:8]}…")
+
+    vin               = row["vin"]
+    payment_method_id = f"pm_{customer_key[:12]}"
+
+    with get_conn() as con:
+        con.execute("""
+            UPDATE vehicles SET
+                customer_key=?, payment_method_id=?,
+                card_last_four=?, card_brand=?
+            WHERE vin=?
+        """, (customer_key, payment_method_id, last_four, card_brand, vin))
+        con.execute("DELETE FROM card_orders WHERE order_id=?", (order_id,))
+
+    print(f"[카드등록 완료] vin={vin[:8]}… card=****{last_four} ({card_brand})")
+    return {"status": "ok", "vin": vin, "payment_method_id": payment_method_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 주차장 목록
+# ══════════════════════════════════════════════════════════════════════════
+
+@app.get("/parking/lots", tags=["주차장"])
+def get_parking_lots():
+    """
+    AAOS 앱 GeofenceManager용 제휴 주차장 목록
+    실제 서비스: 아이파킹 등 PMS API에서 실시간 조회
+    """
+    lots = [
+        {"id": "LOT_GN_01", "name": "강남 CarPayIn 주차장",  "lat": 37.4979, "lng": 127.0276},
+        {"id": "LOT_HD_01", "name": "홍대 CarPayIn 주차장",  "lat": 37.5567, "lng": 126.9236},
+        {"id": "LOT_SC_01", "name": "서초 CarPayIn 주차장",  "lat": 37.4836, "lng": 127.0323},
+        {"id": "LOT_YS_01", "name": "여의도 CarPayIn 주차장", "lat": 37.5219, "lng": 126.9245},
+    ]
+    return {"lots": lots}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -508,14 +525,13 @@ async def pre_notify(req: PreNotifyRequest):
             VALUES (?, ?, ?, ?)
         """, (req.plate, req.lot_id, req.vin, now))
 
-    # 아이파킹 PMS에 번호판 사전 등록
     try:
         async with httpx.AsyncClient() as client:
             await client.post(f"{PARKING_PMS_URL}/register-plate", json={
                 "plate":  req.plate,
                 "lot_id": req.lot_id
             }, timeout=3.0)
-        print(f"[사전알림] plate={req.plate} lot={req.lot_id} → PMS 등록 완료")
+        print(f"[사전알림] plate={req.plate} lot={req.lot_id} trigger={req.trigger} → PMS 등록 완료")
     except Exception as e:
         print(f"[사전알림] PMS 연결 실패 (로컬 등록만 처리): {e}")
 
@@ -527,10 +543,8 @@ def entry_webhook(req: EntryWebhookRequest):
     """
     아이파킹 PMS → 입차 이벤트 웹훅
     멱등성 처리 → 파킹 세션 생성 → MQTT 앱 알림
-    (실제: Kafka publish → Consumer 처리)
     """
     with get_conn() as con:
-        # 사전 등록 확인
         pre = con.execute(
             "SELECT vin FROM pre_notify WHERE plate=? AND lot_id=?",
             (req.plate, req.lot_id)
@@ -540,7 +554,6 @@ def entry_webhook(req: EntryWebhookRequest):
             print(f"[입차웹훅] 미등록 차량: {req.plate}")
             return {"status": "unregistered"}
 
-        # 멱등성: 이미 활성 세션 있으면 무시
         existing = con.execute(
             "SELECT session_id FROM sessions WHERE plate=? AND lot_id=? AND status='active'",
             (req.plate, req.lot_id)
@@ -552,26 +565,18 @@ def entry_webhook(req: EntryWebhookRequest):
         entry_time = datetime.now().isoformat()
         vin        = pre["vin"]
 
-        # [Kafka 역할] 세션 생성 (실제: Kafka Consumer가 처리)
         con.execute("""
             INSERT INTO sessions (session_id, vin, plate, lot_id, entry_time, status)
             VALUES (?, ?, ?, ?, ?, 'active')
         """, (session_id, vin, req.plate, req.lot_id, entry_time))
-
         con.execute(
             "DELETE FROM pre_notify WHERE plate=? AND lot_id=?",
             (req.plate, req.lot_id)
         )
 
-    # MQTT → 앱 입차 확정 알림 (VIN 기반 토픽)
     mqtt_service.notify_entry(session_id, req.lot_id, req.plate, entry_time, vin=vin)
-
-    print(f"[입차확정] plate={req.plate} session={session_id[:8]}...")
-    return {
-        "status":     "confirmed",
-        "session_id": session_id,
-        "entry_time": entry_time
-    }
+    print(f"[입차확정] plate={req.plate} session={session_id[:8]}…")
+    return {"status": "confirmed", "session_id": session_id, "entry_time": entry_time}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -600,14 +605,14 @@ def get_fee(session_id: str):
         "lot_id":           row["lot_id"],
         "lot_name":         f"{row['lot_id']} 주차장",
         "amount":           amount,
-        "duration_minutes": minutes
+        "duration_minutes": minutes,
     }
 
 
 @app.post("/payment", tags=["결제"])
 async def process_payment(req: PaymentRequest):
     """
-    앱 예 탭 → 결제 처리
+    앱 '예' 탭 → 결제 처리
     idempotency_key 중복 방지 → Mock PG 호출 → 거래 저장 → PMS paid 전달
     """
     with get_conn() as con:
@@ -615,7 +620,6 @@ async def process_payment(req: PaymentRequest):
             "SELECT lot_id, plate, vin FROM sessions WHERE session_id=? AND status='active'",
             (req.session_id,)
         ).fetchone()
-
         if not session:
             raise HTTPException(404, "세션 없음 또는 이미 완료")
 
@@ -623,25 +627,25 @@ async def process_payment(req: PaymentRequest):
         plate  = session["plate"]
         vin    = session["vin"]
 
-        # customer_key 조회
         vehicle = con.execute(
             "SELECT customer_key FROM vehicles WHERE vin=?", (vin,)
         ).fetchone()
         customer_key = vehicle["customer_key"] if vehicle and vehicle["customer_key"] else "MOCK_CK"
 
-        # idempotency_key 생성
-        raw          = f"{req.session_id}:{req.amount}:{int(time.time() // 10)}"
-        idem_key     = hashlib.sha256(raw.encode()).hexdigest()
+        raw      = f"{req.session_id}:{req.amount}:{int(time.time() // 10)}"
+        idem_key = hashlib.sha256(raw.encode()).hexdigest()
 
         existing_tx = con.execute(
             "SELECT tx_id, approval_no FROM transactions WHERE idempotency_key=?",
             (idem_key,)
         ).fetchone()
         if existing_tx:
-            return {"tx_id": existing_tx["tx_id"], "approval_no": existing_tx["approval_no"],
-                    "amount": req.amount, "lot_id": lot_id}
+            return {
+                "tx_id": existing_tx["tx_id"], "approval_no": existing_tx["approval_no"],
+                "amount": req.amount, "lot_id": lot_id
+            }
 
-    # Mock PG 호출
+    # Mock PG 호출 (실제: 빌링키 승인 API)
     try:
         async with httpx.AsyncClient() as client:
             pg_res = await client.post(f"{MOCK_PG_URL}/charge", json={
@@ -658,8 +662,6 @@ async def process_payment(req: PaymentRequest):
         approval_no = f"AP{int(time.time())}"
 
     now = datetime.now().isoformat()
-
-    # [Kafka 역할] 거래 저장 + 세션 완료 (실제: Kafka Consumer)
     with get_conn() as con:
         con.execute("""
             INSERT INTO transactions
@@ -671,28 +673,18 @@ async def process_payment(req: PaymentRequest):
             (now, req.amount, req.session_id)
         )
 
-    # 아이파킹 PMS에 paid 전달
     try:
         async with httpx.AsyncClient() as client:
             await client.post(f"{PARKING_PMS_URL}/paid", json={
-                "plate":  plate,
-                "lot_id": lot_id,
-                "tx_id":  tx_id
+                "plate": plate, "lot_id": lot_id, "tx_id": tx_id
             }, timeout=3.0)
         print(f"[결제] PMS paid 전달 완료: {plate}")
     except Exception as e:
-        print(f"[결제] PMS paid 전달 실패 (재시도 필요): {e}")
+        print(f"[결제] PMS paid 전달 실패: {e}")
 
-    # MQTT → 앱 결제 완료 알림 (VIN 기반 토픽)
     mqtt_service.notify_payment(tx_id, approval_no, lot_id, req.amount, vin=vin)
-
     print(f"[결제완료] plate={plate} amount={req.amount:,}원 approval={approval_no}")
-    return {
-        "tx_id":       tx_id,
-        "approval_no": approval_no,
-        "amount":      req.amount,
-        "lot_id":      lot_id
-    }
+    return {"tx_id": tx_id, "approval_no": approval_no, "amount": req.amount, "lot_id": lot_id}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -730,4 +722,5 @@ def reset_all():
         con.execute("DELETE FROM sessions")
         con.execute("DELETE FROM transactions")
         con.execute("DELETE FROM pre_notify")
+        con.execute("DELETE FROM login_sessions")
     return {"status": "초기화 완료"}

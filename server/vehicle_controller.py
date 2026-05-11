@@ -126,17 +126,17 @@ def _get_json(url: str, timeout: float = 3.0) -> dict | None:
 # ── 백엔드 연동 ────────────────────────────────────────────────────────────
 
 def register_with_backend():
-    """시작 시 VIN으로 백엔드에 차량 등록 → 토큰 획득"""
-    global ACCESS_TOKEN
-    res = _post_json(f"{BACKEND_URL}/auth/register", {
-        "vin": VIN,
-        "cert_hash": "MOCK_CERT_HASH"
-    })
-    if res:
-        ACCESS_TOKEN = res.get("access_token", "")
-        print(f"[백엔드] 차량 등록 완료 — VIN={VIN} token={ACCESS_TOKEN[:16]}...")
+    """
+    백엔드 헬스 체크.
+    차량 등록/인증은 AAOS 앱의 MyHyundai OAuth 흐름에서 처리되므로
+    Webots 컨트롤러는 별도 등록 불필요.
+    """
+    res = _get_json(f"{BACKEND_URL}/")
+    if res and res.get("status") == "ok":
+        print(f"[백엔드] 연결 확인 — {res.get('service', '')} v{res.get('version', '')}")
+        print(f"[백엔드] VIN={VIN} / 번호판={PLATE} — 사전 알림 준비 완료")
     else:
-        print("[백엔드] 차량 등록 실패 — 오프라인 모드로 진행")
+        print("[백엔드] 연결 실패 — 오프라인 모드로 진행 (사전 알림 시 재시도)")
 
 def trigger_lpr():
     """

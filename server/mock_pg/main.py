@@ -9,7 +9,7 @@ AAOS 에뮬레이터 접근 URL: http://10.0.2.2:8000/card-register?order_id=TES
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import uuid
+import uuid, os
 import hmac
 import hashlib
 import json
@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 HMAC_SECRET   = "mock_pg_secret_key_carpayin"
-BACKEND_URL   = "http://localhost:8000"
+BACKEND_URL   = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 # ── 카드 등록 HTML 페이지 ───────────────────────────────────────────────────────
 
@@ -379,10 +379,30 @@ _processed: dict = {}
 
 @app.post("/charge")
 async def charge(req: ChargeRequest):
-    """백엔드 → 결제 승인 요청"""
-    # 멱등성 처리
+    """
+    백엔드 → 결제 승인 요청
+
+    실제 PG 흐름:
+      1. billing_key로 카드 원번호 복호화
+      2. VPN 터널 → OpenStack 카드 승인 서비스 전달
+      3. 카드사 승인 처리 (1~3초)
+      4. 승인번호 발급
+
+    데모: 지연(1.5초)으로 카드사 통신 시뮬레이션
+    """
+    import asyncio
+
+    # 멱등성 처리 (in-memory — EC2 배포 시 Redis 또는 DB로 교체)
     if req.idempotency_key and req.idempotency_key in _processed:
+        print(f"[Mock PG] 중복 요청 — 기존 결과 반환: {req.idempotency_key[:12]}…")
         return _processed[req.idempotency_key]
+
+    # ── VPN → OpenStack 카드 승인 서비스 통신 시뮬레이션 ─────────────────
+    print(f"\n[Mock PG] 카드 승인 요청 중...")
+    print(f"  customer_key : {req.customer_key[:12]}…")
+    print(f"  amount       : {req.amount:,}원")
+    print(f"  → [VPN 터널] OpenStack 카드 승인 서비스 전달 중...")
+    await asyncio.sleep(1.5)    # 카드사 네트워크 지연 모사 (실제 1~3초)
 
     tx_id       = f"tx_{uuid.uuid4().hex[:16]}"
     approval_no = f"AP{int(_time.time())}"
@@ -398,9 +418,5 @@ async def charge(req: ChargeRequest):
     if req.idempotency_key:
         _processed[req.idempotency_key] = result
 
-    print(f"\n[Mock PG] ✅ 결제 승인")
-    print(f"  amount      : {req.amount:,}원")
-    print(f"  approval_no : {approval_no}")
-    print(f"  tx_id       : {tx_id}")
-
+    print(f"  ← [카드사 승인 완료] approval_no={approval_no}  tx_id={tx_id}")
     return result

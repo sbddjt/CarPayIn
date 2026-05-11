@@ -1,7 +1,45 @@
-import sqlite3
+import sqlite3, os
 from contextlib import contextmanager
 
 DB_PATH = "backend.db"
+
+def print_schema():
+    """서버 시작 시 실제 vehicles 컬럼 목록 출력 (디버그용)"""
+    try:
+        con = sqlite3.connect(DB_PATH)
+        cols = con.execute("PRAGMA table_info(vehicles)").fetchall()
+        con.close()
+        names = [c[1] for c in cols]
+        print(f"[DB] backend.db 경로: {os.path.abspath(DB_PATH)}")
+        print(f"[DB] vehicles 컬럼: {names}")
+    except Exception as e:
+        print(f"[DB] 스키마 확인 실패: {e}")
+
+# vehicles 테이블에 추가될 수 있는 컬럼 목록 (기존 DB 마이그레이션용)
+_VEHICLES_COLUMNS = [
+    ("customer_key",      "TEXT",    "''"),
+    ("payment_method_id", "TEXT",    "''"),
+    ("card_last_four",    "TEXT",    "'0000'"),
+    ("card_brand",        "TEXT",    "''"),
+    ("registered_at",     "TEXT",    "''"),
+    ("hyundai_user_id",   "TEXT",    "''"),
+    ("hyundai_car_id",    "TEXT",    "''"),
+    ("model_name",        "TEXT",    "''"),
+    ("year",              "INTEGER", "0"),
+]
+
+def _migrate(con):
+    """
+    기존 DB에 누락된 컬럼을 ALTER TABLE로 추가.
+    SQLite는 IF NOT EXISTS를 지원하지 않으므로 PRAGMA로 현재 컬럼 목록을 확인 후 처리.
+    """
+    existing = {row[1] for row in con.execute("PRAGMA table_info(vehicles)").fetchall()}
+    for col_name, col_type, col_default in _VEHICLES_COLUMNS:
+        if col_name not in existing:
+            con.execute(
+                f"ALTER TABLE vehicles ADD COLUMN {col_name} {col_type} DEFAULT {col_default}"
+            )
+            print(f"[DB 마이그레이션] vehicles.{col_name} 컬럼 추가")
 
 def init_db():
     with get_conn() as con:
@@ -9,24 +47,26 @@ def init_db():
             CREATE TABLE IF NOT EXISTS vehicles (
                 vin               TEXT PRIMARY KEY,
                 plate             TEXT,
-                cert_hash         TEXT,
-                customer_key      TEXT,
-                payment_method_id TEXT,
-                registered_at     TEXT,
-                hyundai_user_id   TEXT,
-                hyundai_car_id    TEXT,
-                model_name        TEXT,
-                year              INTEGER
+                customer_key      TEXT    DEFAULT '',
+                payment_method_id TEXT    DEFAULT '',
+                card_last_four    TEXT    DEFAULT '0000',
+                card_brand        TEXT    DEFAULT '',
+                registered_at     TEXT    DEFAULT '',
+                hyundai_user_id   TEXT    DEFAULT '',
+                hyundai_car_id    TEXT    DEFAULT '',
+                model_name        TEXT    DEFAULT '',
+                year              INTEGER DEFAULT 0
             );
 
-            -- 현대 OAuth 토큰 저장 (VIN과 별도 관리)
+            -- 현대 OAuth 토큰 (VIN과 별도 관리)
             CREATE TABLE IF NOT EXISTS hyundai_tokens (
-                vin                  TEXT PRIMARY KEY,
-                hyundai_access_token TEXT,
+                vin                   TEXT PRIMARY KEY,
+                hyundai_access_token  TEXT,
                 hyundai_refresh_token TEXT,
-                issued_at            TEXT
+                issued_at             TEXT
             );
 
+            -- CarPayIn 서비스 토큰
             CREATE TABLE IF NOT EXISTS tokens (
                 vin           TEXT PRIMARY KEY,
                 access_token  TEXT,
@@ -34,6 +74,7 @@ def init_db():
                 issued_at     TEXT
             );
 
+            -- 지오펜스/내비 기반 입차 사전 알림
             CREATE TABLE IF NOT EXISTS pre_notify (
                 plate      TEXT,
                 lot_id     TEXT,
@@ -42,6 +83,7 @@ def init_db():
                 PRIMARY KEY (plate, lot_id)
             );
 
+            -- 주차 세션 (입차 확정 ~ 출차 완료)
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id  TEXT PRIMARY KEY,
                 vin         TEXT,
@@ -53,6 +95,7 @@ def init_db():
                 status      TEXT DEFAULT 'active'
             );
 
+            -- 결제 트랜잭션
             CREATE TABLE IF NOT EXISTS transactions (
                 tx_id           TEXT PRIMARY KEY,
                 session_id      TEXT,
@@ -63,22 +106,30 @@ def init_db():
                 timestamp       TEXT
             );
 
+            -- Mock PG 카드 등록 주문 (order_id → VIN 매핑)
+            CREATE TABLE IF NOT EXISTS card_orders (
+                order_id   TEXT PRIMARY KEY,
+                vin        TEXT,
+                created_at TEXT
+            );
+
+            -- 마이현대 QR 로그인 세션 (AAOS 폴링용)
             CREATE TABLE IF NOT EXISTS login_sessions (
-                session_id     TEXT PRIMARY KEY,
-                vin            TEXT,
-                status         TEXT DEFAULT 'pending',   -- pending / complete
-                access_token   TEXT,
-                refresh_token  TEXT,
-                plate_number   TEXT,
-                user_id        TEXT,
-                user_name      TEXT,
-                model_name     TEXT,
-                vin_list_json  TEXT,
-                card_last_four TEXT DEFAULT '****',
-                card_brand     TEXT DEFAULT '현대카드',
-                created_at     TEXT
+                session_id    TEXT PRIMARY KEY,
+                vin           TEXT,
+                status        TEXT DEFAULT 'pending',
+                access_token  TEXT,
+                refresh_token TEXT,
+                plate_number  TEXT,
+                user_id       TEXT,
+                user_name     TEXT,
+                model_name    TEXT,
+                vin_list_json TEXT,
+                created_at    TEXT
             );
         """)
+        # 기존 DB 마이그레이션 (누락 컬럼 자동 추가)
+        _migrate(con)
 
 @contextmanager
 def get_conn():

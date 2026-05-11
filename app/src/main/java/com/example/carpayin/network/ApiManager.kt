@@ -26,6 +26,7 @@ object ApiManager {
         val year: Int
     )
 
+    data class CardOrderResult(val orderId: String, val pgUrl: String)
     data class ParkingLotInfo(val id: String, val name: String, val lat: Double, val lng: Double)
     data class FeeResult(val lotName: String, val durationMinutes: Int, val amount: Int)
     data class PaymentResult(val transactionId: String, val approvalNumber: String)
@@ -104,6 +105,20 @@ object ApiManager {
         return TokenResult(
             accessToken  = response.getString("access_token"),
             refreshToken = response.getString("refresh_token")
+        )
+    }
+
+    // ── 카드 등록 주문 ────────────────────────────────────────────────────────
+
+    /**
+     * 백엔드에서 order_id를 발급받고 Mock PG WebView URL을 반환.
+     * CardRegistrationActivity에서 호출 → WebView에 pg_url 로드.
+     */
+    fun fetchCardOrder(vin: String, accessToken: String): CardOrderResult {
+        val response = getJson(URL("$BASE_URL/card/order/$vin"), accessToken)
+        return CardOrderResult(
+            orderId = response.getString("order_id"),
+            pgUrl   = response.getString("pg_url")
         )
     }
 

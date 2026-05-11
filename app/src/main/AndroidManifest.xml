@@ -51,6 +51,11 @@
             android:name=".ui.RegistrationActivity"
             android:exported="false" />
 
+        <!-- Mock PG WebView 카드 등록 화면 (최초 1회) -->
+        <activity
+            android:name=".ui.CardRegistrationActivity"
+            android:exported="false" />
+
         <!-- 백그라운드 주차 감시 서비스 -->
         <service
             android:name=".service.CarPayInService"
