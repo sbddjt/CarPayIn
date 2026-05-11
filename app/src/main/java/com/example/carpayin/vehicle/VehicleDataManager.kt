@@ -9,20 +9,11 @@ import android.util.Log
  * android.car.jar 없이도 컴파일됩니다.
  * 실제 AAOS 기기에서는 리플렉션으로 Car API를 호출하고,
  * 에뮬레이터 / 미지원 환경에서는 Mock 값으로 자동 fallback합니다.
- *
- * 읽기 항목:
- *  - INFO_VIN           : 차량 VIN
- *  - IGNITION_STATE     : 시동 상태
- *  - GEAR_SELECTION     : 기어 상태
- *  - PERF_VEHICLE_SPEED : 차량 속도 (m/s)
- *  - EV_BATTERY_LEVEL   : 배터리 잔량 (선택)
- *  - PERF_ODOMETER      : 주행거리 (선택)
  */
 object VehicleDataManager {
 
     private const val TAG = "VehicleDataManager"
 
-    // ── VHAL Property ID 상수 ─────────────────────────────────────────────────
     private const val PROP_VIN      = 0x11100100
     private const val PROP_IGNITION = 0x11400409
     private const val PROP_GEAR     = 0x11400400
@@ -30,27 +21,18 @@ object VehicleDataManager {
     private const val PROP_BATTERY  = 0x11600303
     private const val PROP_ODOMETER = 0x11600204
 
-    // VehicleGear 상수 (android.car.VehicleGear 값과 동일)
     private const val GEAR_PARK    = 4
     private const val GEAR_REVERSE = 8
     private const val GEAR_NEUTRAL = 1
     private const val GEAR_DRIVE   = 16
-
-    // IGNITION_STATE 값
     private const val IGNITION_ON  = 2
-
-    // Car.PROPERTY_SERVICE 상수
     private const val PROPERTY_SERVICE = "property"
 
-    // ── 내부 상태 ─────────────────────────────────────────────────────────────
-    private var carObj: Any? = null               // android.car.Car 인스턴스
-    private var carPropManager: Any? = null       // CarPropertyManager 인스턴스
-    private var ignitionCallback: Any? = null     // CarPropertyEventCallback 인스턴스
+    private var carObj: Any? = null
+    private var carPropManager: Any? = null
+    private var ignitionCallback: Any? = null
 
-    /** IGNITION_STATE 변경 콜백 — 시동 ON/OFF 시 호출됩니다. */
     var onIgnitionChanged: ((ignitionOn: Boolean) -> Unit)? = null
-
-    // ── 차량 상태 데이터 클래스 ───────────────────────────────────────────────
 
     data class VehicleState(
         val vin: String = "",
@@ -62,11 +44,9 @@ object VehicleDataManager {
         val ignitionOn: Boolean = false
     )
 
-    // ── 초기화 / 해제 ─────────────────────────────────────────────────────────
-
     fun init(context: Context) {
         try {
-            val carClass = Class.forName("android.car.Car")
+            val carClass  = Class.forName("android.car.Car")
             val createCar = carClass.getMethod("createCar", Context::class.java)
             carObj = createCar.invoke(null, context)
 
@@ -85,8 +65,10 @@ object VehicleDataManager {
     fun release() {
         try {
             if (ignitionCallback != null && carPropManager != null) {
-                val unregister = carPropManager!!.javaClass
-                    .getMethod("unregisterCallback", Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback"))
+                val unregister = carPropManager!!.javaClass.getMethod(
+                    "unregisterCallback",
+                    Class.forName("android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback")
+                )
                 unregister.invoke(carPropManager, ignitionCallback)
             }
         } catch (e: Exception) { /* 무시 */ }
@@ -97,8 +79,6 @@ object VehicleDataManager {
         carPropManager = null
         ignitionCallback = null
     }
-
-    // ── VIN 읽기 ─────────────────────────────────────────────────────────────
 
     fun readVin(context: Context): String {
         val pm = carPropManager
@@ -127,8 +107,6 @@ object VehicleDataManager {
         }
     }
 
-    // ── 전체 차량 상태 읽기 ───────────────────────────────────────────────────
-
     fun getState(context: Context): VehicleState {
         val pm = carPropManager ?: return simulatedState(context)
         return try {
@@ -146,9 +124,8 @@ object VehicleDataManager {
 
             val ignRaw     = getIntProperty(pm, PROP_IGNITION) ?: 0
             val ignitionOn = ignRaw >= IGNITION_ON
-
-            val battery  = getFloatProperty(pm, PROP_BATTERY) ?: -1f
-            val odometer = getFloatProperty(pm, PROP_ODOMETER) ?: 0f
+            val battery    = getFloatProperty(pm, PROP_BATTERY) ?: -1f
+            val odometer   = getFloatProperty(pm, PROP_ODOMETER) ?: 0f
 
             VehicleState(
                 vin        = readVin(context),
@@ -184,15 +161,12 @@ object VehicleDataManager {
         } catch (e: Exception) { 0f }
     }
 
-    // ── IGNITION 콜백 등록 ────────────────────────────────────────────────────
-
     private fun registerIgnitionCallback() {
         val pm = carPropManager ?: return
         try {
             val callbackClass = Class.forName(
                 "android.car.hardware.property.CarPropertyManager\$CarPropertyEventCallback"
             )
-            // 동적 프록시로 CarPropertyEventCallback 구현
             ignitionCallback = java.lang.reflect.Proxy.newProxyInstance(
                 callbackClass.classLoader,
                 arrayOf(callbackClass)
@@ -202,7 +176,8 @@ object VehicleDataManager {
                         val propValue = args?.get(0) ?: return@newProxyInstance null
                         try {
                             val valueMethod = propValue.javaClass.getMethod("getValue")
-                            val ignState = valueMethod.invoke(propValue) as? Int ?: return@newProxyInstance null
+                            val ignState = valueMethod.invoke(propValue) as? Int
+                                ?: return@newProxyInstance null
                             val isOn = ignState >= IGNITION_ON
                             Log.d(TAG, "IGNITION_STATE 변경: $ignState → ignitionOn=$isOn")
                             onIgnitionChanged?.invoke(isOn)
@@ -217,6 +192,64 @@ object VehicleDataManager {
                 null
             }
 
-            // SENSOR_RATE_ONCHANGE = 0
             val registerMethod = pm.javaClass.getMethod(
-      
+                "registerCallback",
+                callbackClass,
+                Int::class.javaPrimitiveType,
+                Float::class.javaPrimitiveType
+            )
+            registerMethod.invoke(pm, ignitionCallback, PROP_IGNITION, 0f)
+            Log.d(TAG, "IGNITION 콜백 등록 완료")
+        } catch (e: Exception) {
+            Log.w(TAG, "IGNITION 콜백 등록 실패: ${e.message}")
+        }
+    }
+
+    // ── 내부 프로퍼티 읽기 유틸 ──────────────────────────────────────────────
+
+    private fun getStringProperty(pm: Any, propId: Int): String? {
+        val method = pm.javaClass.getMethod(
+            "getProperty",
+            Class::class.java,
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        )
+        val result = method.invoke(pm, String::class.java, propId, 0) ?: return null
+        val getValue = result.javaClass.getMethod("getValue")
+        return getValue.invoke(result) as? String
+    }
+
+    private fun getIntProperty(pm: Any, propId: Int): Int? {
+        val method = pm.javaClass.getMethod(
+            "getProperty",
+            Class::class.java,
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        )
+        val result = method.invoke(pm, Integer::class.java, propId, 0) ?: return null
+        val getValue = result.javaClass.getMethod("getValue")
+        return (getValue.invoke(result) as? Number)?.toInt()
+    }
+
+    private fun getFloatProperty(pm: Any, propId: Int): Float? {
+        val method = pm.javaClass.getMethod(
+            "getProperty",
+            Class::class.java,
+            Int::class.javaPrimitiveType,
+            Int::class.javaPrimitiveType
+        )
+        val result = method.invoke(pm, java.lang.Float::class.java, propId, 0) ?: return null
+        val getValue = result.javaClass.getMethod("getValue")
+        return (getValue.invoke(result) as? Number)?.toFloat()
+    }
+
+    private fun simulatedState(context: Context) = VehicleState(
+        vin        = readVin(context),
+        speedKph   = 0f,
+        gear       = "P",
+        batteryPct = 78f,
+        isParked   = true,
+        odometer   = 12345f,
+        ignitionOn = false
+    )
+}

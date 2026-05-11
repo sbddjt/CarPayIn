@@ -12,10 +12,10 @@ object ApiManager {
     // 에뮬레이터 → 호스트 PC 통신용 (앱 내부 API 호출)
     const val BASE_URL = "http://10.0.2.2:8000"
 
-    // QR 코드용 — 실제 폰이 접근할 PC 로컬 IP
-    // ★ 본인 PC의 로컬 IP로 교체 (cmd → ipconfig → IPv4 주소)
-    // 예: "http://192.168.0.10:8000"
-    const val QR_BASE_URL = "http://192.168.201.213:8000"
+    // QR 코드용 — ngrok 공개 URL (ngrok http 8000 실행 후 발급된 주소로 교체)
+    // 예: "https://abc123.ngrok-free.app"
+    // ngrok 없이 같은 와이파이 환경이면: "http://192.168.201.213:8000"
+    const val QR_BASE_URL = "https://pretext-armless-wieldable.ngrok-free.dev"
 
     // ── 데이터 클래스 ─────────────────────────────────────────────────────────
 
@@ -33,21 +33,6 @@ object ApiManager {
 
     // ── 마이현대 OAuth 세션 폴링 ──────────────────────────────────────────────
 
-    /**
-     * AAOS 앱이 QR 코드를 표시한 후, 모바일에서 마이현대 OAuth 로그인이 완료됐는지
-     * 백엔드 세션 상태를 2초 간격으로 확인합니다.
-     *
-     * 백엔드 응답 예시 (status = "complete"):
-     * {
-     *   "status": "complete",
-     *   "access_token": "...", "refresh_token": "...",
-     *   "plate_number": "12가3456",
-     *   "user_name": "홍길동", "user_id": "user_xxx",
-     *   "model_name": "IONIQ 6",
-     *   "vin_list": [{ "vin": "...", "car_id": "...", "model_name": "...", "year": 2024 }],
-     *   "card_last_four": "1234", "card_brand": "현대카드"
-     * }
-     */
     data class SessionStatusResult(
         val isComplete: Boolean,
         val accessToken: String = "",
@@ -101,7 +86,7 @@ object ApiManager {
         }
     }
 
-    // ── VIN 확정 (복수 차량 중 하나 선택 시 백엔드에 알림) ───────────────────
+    // ── VIN 확정 ──────────────────────────────────────────────────────────────
 
     fun confirmVin(vin: String, carId: String, accessToken: String) {
         val body = JSONObject().apply {
@@ -138,7 +123,6 @@ object ApiManager {
                 )
             }
         } catch (e: Exception) {
-            // 개발 환경 폴백
             listOf(
                 ParkingLotInfo("LOT_GN_01", "강남 CarPayIn 주차장", 37.4979, 127.0276),
                 ParkingLotInfo("LOT_HD_01", "홍대 CarPayIn 주차장", 37.5567, 126.9236)
@@ -146,7 +130,7 @@ object ApiManager {
         }
     }
 
-    // ── 사전 알림 (지오펜스 / 내비 목적지 기반) ──────────────────────────────
+    // ── 사전 알림 ─────────────────────────────────────────────────────────────
 
     fun sendPreNotification(
         vin: String, plate: String, lotId: String,
@@ -195,11 +179,35 @@ object ApiManager {
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "application/json")
             if (accessToken != null) conn.setRequestProperty("Authorization", "Bearer $accessToken")
-            conn.doOutput      = true
+            conn.doOutput       = true
             conn.connectTimeout = 10_000
-            conn.readTimeout   = 30_000
+            conn.readTimeout    = 30_000
             OutputStreamWriter(conn.outputStream).use { it.write(body) }
             val code   = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text   = stream?.bufferedReader()?.readText() ?: "{}"
-            if (code !in 200..299) throw Run
+            if (code !in 200..299) throw RuntimeException("HTTP $code: $text")
+            JSONObject(text)
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun getJson(url: URL, accessToken: String? = null): JSONObject {
+        val conn = url.openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("Accept", "application/json")
+            if (accessToken != null) conn.setRequestProperty("Authorization", "Bearer $accessToken")
+            conn.connectTimeout = 10_000
+            conn.readTimeout    = 30_000
+            val code   = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val text   = stream?.bufferedReader()?.readText() ?: "{}"
+            if (code !in 200..299) throw RuntimeException("HTTP $code: $text")
+            JSONObject(text)
+        } finally {
+            conn.disconnect()
+        }
+    }
+}

@@ -3,64 +3,106 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#080C10"
-    android:padding="20dp">
+    android:background="#080C10">
 
+    <!-- ── 상단 헤더 ── -->
     <RelativeLayout
         android:id="@+id/tvHeaderTitle"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp">
+        android:layout_height="56dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:background="#0D1219">
 
-        <TextView
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Car PayIn"
-            android:textColor="#FFFFFF"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:layout_centerVertical="true"/>
+            android:layout_centerVertical="true"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <ImageView
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:src="@drawable/ic_logo"
+                android:scaleType="fitCenter"
+                android:layout_marginEnd="10dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CarPayIn"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"/>
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnResetApp"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="32dp"
             android:layout_alignParentEnd="true"
             android:layout_centerVertical="true"
             android:background="#1A2535"
             android:text="등록 해제"
             android:textColor="#FF6B6B"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
             android:visibility="gone"/>
     </RelativeLayout>
 
+    <!-- ══════════════════════════════════════════════ -->
+    <!-- 미등록 화면                                     -->
+    <!-- ══════════════════════════════════════════════ -->
     <LinearLayout
         android:id="@+id/layoutUnregistered"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:gravity="center"
-        android:padding="24dp"
+        android:padding="32dp"
         android:visibility="visible">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Car PayIn"
-            android:textColor="#FFFFFF"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="12dp"/>
+        <ImageView
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:src="@drawable/ic_logo"
+            android:scaleType="fitCenter"
+            android:layout_marginBottom="28dp"/>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="마이현대 계정으로\n차량과 결제를 연동하세요"
-            android:textColor="#888888"
-            android:textSize="15sp"
+            android:text="CarPayIn"
+            android:textColor="#FFFFFF"
+            android:textSize="34sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.03"
+            android:layout_marginBottom="10dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="주차 정산, 지루함을 깨우다"
+            android:textColor="#C8833B"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="마이현대 계정으로 차량과 결제를 연동하세요"
+            android:textColor="#667788"
+            android:textSize="13sp"
             android:gravity="center"
+            android:layout_marginBottom="48dp"/>
+
+        <View
+            android:layout_width="48dp"
+            android:layout_height="2dp"
+            android:background="#C8833B"
             android:layout_marginBottom="48dp"/>
 
         <Button
@@ -71,17 +113,29 @@
             android:text="현대 계정 연동"
             android:textColor="#000000"
             android:textSize="16sp"
-            android:textStyle="bold"/>
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
 
-        <TextView
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="QR 코드로 스마트폰 인증"
-            android:textColor="#445566"
-            android:textSize="12sp"
-            android:layout_marginTop="12dp"/>
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <View android:layout_width="24dp" android:layout_height="1dp" android:background="#334455"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="  QR 코드로 스마트폰 인증  "
+                android:textColor="#445566"
+                android:textSize="11sp"/>
+            <View android:layout_width="24dp" android:layout_height="1dp" android:background="#334455"/>
+        </LinearLayout>
+
     </LinearLayout>
 
+    <!-- ══════════════════════════════════════════════ -->
+    <!-- 등록 완료 화면                                  -->
+    <!-- ══════════════════════════════════════════════ -->
     <ScrollView
         android:id="@+id/layoutRegistered"
         android:layout_width="match_parent"
@@ -92,21 +146,27 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:padding="20dp">
 
+            <!-- 상태 바 -->
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="40dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
+                android:background="#0D1219"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
                 android:layout_marginBottom="16dp">
+
                 <TextView
                     android:id="@+id/tvStatusDot"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="●"
                     android:textColor="#00FF88"
-                    android:textSize="12sp"
+                    android:textSize="10sp"
                     android:layout_marginEnd="8dp"/>
                 <TextView
                     android:id="@+id/tvPaymentStatus"
@@ -114,8 +174,8 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="주차장 접근 시 자동 결제됩니다"
-                    android:textColor="#CCCCCC"
-                    android:textSize="13sp"/>
+                    android:textColor="#AABBCC"
+                    android:textSize="12sp"/>
                 <TextView
                     android:id="@+id/tvParkingBadge"
                     android:layout_width="wrap_content"
@@ -123,22 +183,33 @@
                     android:text="미주차"
                     android:textColor="#556677"
                     android:background="#111820"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
                     android:paddingTop="4dp"
                     android:paddingBottom="4dp"
                     android:textSize="11sp"/>
             </LinearLayout>
 
+            <!-- 결제 수단 라벨 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="연동된 결제 수단"
+                android:textColor="#667788"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="8dp"/>
+
+            <!-- 카드 뷰 -->
             <LinearLayout
                 android:id="@+id/mainCardBody"
                 android:layout_width="match_parent"
-                android:layout_height="180dp"
+                android:layout_height="190dp"
                 android:orientation="vertical"
-                android:padding="20dp"
+                android:padding="22dp"
                 android:background="#1A1A2E"
                 android:elevation="8dp"
-                android:layout_marginBottom="12dp">
+                android:layout_marginBottom="10dp">
 
                 <RelativeLayout
                     android:layout_width="match_parent"
@@ -149,7 +220,7 @@
                         android:layout_height="wrap_content"
                         android:text="HYUNDAI"
                         android:textColor="#CCCCCC"
-                        android:textSize="12sp"
+                        android:textSize="13sp"
                         android:textStyle="bold"
                         android:letterSpacing="0.2"/>
                     <TextView
@@ -159,78 +230,106 @@
                         android:layout_alignParentEnd="true"
                         android:text="VISA"
                         android:textColor="#FFD700"
-                        android:textSize="14sp"
+                        android:textSize="15sp"
                         android:textStyle="bold"/>
                 </RelativeLayout>
 
                 <View
-                    android:layout_width="40dp"
-                    android:layout_height="30dp"
+                    android:layout_width="44dp"
+                    android:layout_height="32dp"
                     android:background="#C8A030"
-                    android:layout_marginTop="16dp"/>
+                    android:layout_marginTop="18dp"/>
 
                 <TextView
                     android:id="@+id/mainCardNumber"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="18dp"
                     android:text="•••• •••• •••• ••••"
                     android:textColor="#FFFFFF"
-                    android:textSize="18sp"
-                    android:letterSpacing="0.1"
+                    android:textSize="19sp"
+                    android:letterSpacing="0.12"
                     android:fontFamily="monospace"/>
             </LinearLayout>
 
             <Button
                 android:id="@+id/btnChangeCard"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="44dp"
                 android:background="#111820"
-                android:text="다른 카드로 변경"
-                android:textColor="#FFFFFF"
+                android:text="계정 재연동"
+                android:textColor="#AABBCC"
+                android:textSize="13sp"
                 android:layout_marginBottom="24dp"/>
 
+            <!-- 차량 정보 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="내 차량 정보"
-                android:textColor="#888888"
-                android:textSize="12sp"
+                android:textColor="#667788"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:background="#111820"
+                android:background="#0D1219"
                 android:padding="16dp"
-                android:layout_marginBottom="24dp">
+                android:layout_marginBottom="24dp"
+                android:gravity="center_vertical">
+
                 <TextView
-                    android:id="@+id/tvPlateNumber"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🚗"
+                    android:textSize="20sp"
+                    android:layout_marginEnd="12dp"/>
+
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="123가4567"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:id="@+id/tvVinShort"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="VIN: KMH•••"
-                    android:textColor="#556677"
-                    android:textSize="12sp"/>
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvPlateNumber"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="123가4567"
+                        android:textColor="#FFFFFF"
+                        android:textSize="17sp"
+                        android:textStyle="bold"/>
+
+                    <TextView
+                        android:id="@+id/tvVinShort"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="VIN: KMH•••"
+                        android:textColor="#556677"
+                        android:textSize="11sp"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="#00E87A"/>
             </LinearLayout>
 
+            <!-- 주차 중 섹션 -->
             <LinearLayout
                 android:id="@+id/layoutParkingActive"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="#1A2535"
+                android:background="#0D2010"
                 android:padding="16dp"
                 android:layout_marginBottom="24dp"
                 android:visibility="gone">
+
                 <TextView
                     android:id="@+id/tvActiveLotName"
                     android:layout_width="match_parent"
@@ -239,64 +338,72 @@
                     android:textColor="#00FF88"
                     android:textSize="16sp"
                     android:textStyle="bold"
-                    android:layout_marginBottom="12dp"/>
+                    android:layout_marginBottom="14dp"/>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="주차 시간"
-                        android:textColor="#AAAAAA"/>
+                        android:textColor="#889966"
+                        android:textSize="13sp"/>
                     <TextView
                         android:id="@+id/tvParkingTimer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="00:00:00"
-                        android:textColor="#FFFFFF"
+                        android:textColor="#CCFFCC"
                         android:gravity="end"
-                        android:fontFamily="monospace"/>
+                        android:fontFamily="monospace"
+                        android:textSize="14sp"/>
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:layout_marginTop="8dp">
+                    android:layout_marginBottom="14dp">
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="예상 요금"
-                        android:textColor="#AAAAAA"/>
+                        android:textColor="#889966"
+                        android:textSize="13sp"/>
                     <TextView
                         android:id="@+id/tvParkingEstFee"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="0원"
                         android:textColor="#FFFFFF"
-                        android:gravity="end"/>
+                        android:gravity="end"
+                        android:textSize="15sp"
+                        android:textStyle="bold"/>
                 </LinearLayout>
 
                 <Button
                     android:id="@+id/btnSettleNow"
                     android:layout_width="match_parent"
                     android:layout_height="48dp"
-                    android:layout_marginTop="16dp"
                     android:background="#00E87A"
                     android:text="지금 정산하기"
                     android:textColor="#000000"
                     android:textStyle="bold"/>
             </LinearLayout>
 
+            <!-- 근처 주차장 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="근처 제휴 주차장"
-                android:textColor="#888888"
-                android:textSize="12sp"
+                android:textColor="#667788"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
+
             <LinearLayout
                 android:id="@+id/layoutParkingLots"
                 android:layout_width="match_parent"
@@ -304,19 +411,24 @@
                 android:orientation="vertical"
                 android:layout_marginBottom="24dp"/>
 
+            <!-- 결제 내역 -->
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="최근 결제 내역"
-                android:textColor="#888888"
-                android:textSize="12sp"
+                android:textColor="#667788"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
                 android:layout_marginBottom="8dp"/>
+
             <LinearLayout
                 android:id="@+id/layoutTxHistory"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:paddingBottom="40dp"/>
+
         </LinearLayout>
     </ScrollView>
+
 </LinearLayout>

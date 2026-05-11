@@ -1,5 +1,6 @@
 package com.example.carpayin.ui
 
+import com.example.carpayin.R
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -773,10 +774,8 @@ class MainActivity : AppCompatActivity() {
                     startServicesAndListeners()
                 }
                 RESULT_CANCELED -> {
-                    // QR 화면에서 취소 → 미등록 상태면 다시 QR 화면으로
-                    if (!ParkingStateManager.isRegistered(this)) {
-                        startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
-                    }
+                    // QR 화면에서 취소 → 버튼 화면으로 돌아가기
+                    showUnregisteredState()
                 }
             }
         }

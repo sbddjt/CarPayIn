@@ -21,15 +21,20 @@ HMAC_SECRET     = "mock_pg_secret_key_carpayin"
 # ── 현대 개발자 포털 설정 ───────────────────────────────────────────────────
 HYUNDAI_CLIENT_ID     = "26b816d9-7764-42bd-bdbf-ff49f2e33098"
 HYUNDAI_CLIENT_SECRET = "VcFPoKezkzlyhv0C4V3dMhIRyUz91OG70jdiAJLrCPd6rIPD"
-HYUNDAI_REDIRECT_URI  = "http://localhost:8000/auth/redirect"
 
-# 현대 계정 API (OpenID Connect)
-HYUNDAI_TOKEN_URL    = "https://accounts.hyundai.com/auth/realms/HyundaiAccount/protocol/openid-connect/token"
-HYUNDAI_USERINFO_URL = "https://accounts.hyundai.com/auth/realms/HyundaiAccount/protocol/openid-connect/userinfo"
+# ★ ngrok 실행 후 발급된 URL로 교체 (예: https://abc123.ngrok-free.app)
+# ngrok http 8000 실행 → Forwarding URL 복사 → 아래에 붙여넣기
+NGROK_URL             = "https://pretext-armless-wieldable.ngrok-free.dev"
+HYUNDAI_REDIRECT_URI  = f"{NGROK_URL}/auth/redirect"
 
-# 현대 데이터 API (차량 정보 / VIN)
-# TODO: developers.hyundai.com API 가이드에서 실제 엔드포인트 확인 후 교체
-HYUNDAI_VEHICLE_LIST_URL = "https://api.hyundai.com/v1/spa/vehicles"
+# 현대 계정 API (kr-ccapi)
+HYUNDAI_BASE_URL     = "https://prd.kr-ccapi.hyundai.com/api/v1"
+HYUNDAI_AUTH_URL     = f"{HYUNDAI_BASE_URL}/user/oauth2/authorize"
+HYUNDAI_TOKEN_URL    = f"{HYUNDAI_BASE_URL}/user/oauth2/token"
+HYUNDAI_USERINFO_URL = f"{HYUNDAI_BASE_URL}/user/profile"
+
+# 현대 차량 API
+HYUNDAI_VEHICLE_LIST_URL = f"{HYUNDAI_BASE_URL}/spa/vehicles"
 
 # ── 앱 시작 ────────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -75,10 +80,7 @@ async def hyundai_start(session_id: str, vin: str = ""):
         "scope":         "openid profile",
         "state":         session_id,   # 콜백에서 어느 AAOS 세션인지 찾기 위해 그대로 전달
     })
-    hyundai_auth_url = (
-        "https://accounts.hyundai.com/auth/realms/HyundaiAccount"
-        f"/protocol/openid-connect/auth?{params}"
-    )
+    hyundai_auth_url = f"{HYUNDAI_AUTH_URL}?{params}"
     print(f"[QR 시작] session={session_id[:8]}… vin={vin[:8] if vin else '없음'}… → 현대 OAuth 리디렉션")
     return RedirectResponse(hyundai_auth_url)
 
@@ -272,7 +274,23 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str =
             timeout=10.0
         )
         user_info = userinfo_res.json() if userinfo_res.status_code == 200 else {}
-        user_id   = user_info.get("sub", user_info.get("user_id", str(uuid.uuid4())))
+        print(f"[현대 profile] 응답 필드: {list(user_info.keys())}")
+        print(f"[현대 profile] 전체: {user_info}")
+
+        # 현대 API 필드명 우선순위로 추출
+        user_id = (
+            user_info.get("userId") or
+            user_info.get("sub") or
+            user_info.get("user_id") or
+            str(uuid.uuid4())
+        )
+        user_name = (
+            user_info.get("name") or
+            user_info.get("userName") or
+            user_info.get("nickname") or
+            user_info.get("given_name") or
+            ""
+        )
 
         # 3단계: 차량 리스트 조회 → VIN + car_id
         # TODO: 실제 현대 차량 API 엔드포인트 확인 후 URL 수정
@@ -353,6 +371,7 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "", cert_hash: str =
         "refresh_token": refresh_token,
         "plate_number":  plate,
         "user_id":       user_id,
+        "user_name":     user_name,
         "vin_list":      vin_list,
     }
 

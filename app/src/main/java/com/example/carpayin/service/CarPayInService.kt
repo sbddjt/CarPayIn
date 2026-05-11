@@ -1,96 +1,25 @@
 package com.example.carpayin.service
 
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.app.Notification
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.app.NotificationChannel
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.app.NotificationManager
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.app.PendingIntent
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.app.Service
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.content.Context
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.content.Intent
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.content.pm.ServiceInfo
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.os.Build
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.os.Handler
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.os.IBinder
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
-import com.example.carpayin.data.ParkingStateManager
-import com.example.carpayin.data.TransactionStore
 import android.os.Looper
-import com.example.carpayin.network.ApiManager
-import com.example.carpayin.network.MqttManager
-import com.example.carpayin.vehicle.VehicleDataManager
-import com.example.carpayin.vehicle.GeofenceManager
+import android.util.Log
 import com.example.carpayin.data.ParkingStateManager
 import com.example.carpayin.data.TransactionStore
-import android.util.Log
+import com.example.carpayin.network.ApiManager
+import com.example.carpayin.network.MqttManager
+import com.example.carpayin.ui.MainActivity
+import com.example.carpayin.vehicle.GeofenceManager
+import com.example.carpayin.vehicle.VehicleDataManager
 
 /**
  * CarPayIn Foreground Service
@@ -102,8 +31,6 @@ import android.util.Log
  *  ▸ 시동 ON 감지 → 자동 요금 조회
  *  ▸ 액세스 토큰 자동 갱신 (만료 5분 전)
  *  ▸ 입차 확정 / 결제 완료 Android Notification
- *
- * UI 콜백: companion object의 onXxx 람다를 MainActivity에서 등록/해제합니다.
  */
 class CarPayInService : Service() {
 
@@ -112,8 +39,6 @@ class CarPayInService : Service() {
     private var vin: String = ""
     private var isRunning = false
 
-    // ── 상수 ─────────────────────────────────────────────────────────────────
-
     companion object {
         const val CHANNEL_SERVICE = "carpayin_service"
         const val CHANNEL_EVENTS  = "carpayin_events"
@@ -121,19 +46,13 @@ class CarPayInService : Service() {
         const val NOTIF_PARKING   = 2
         const val NOTIF_PAYMENT   = 3
 
-        private const val FEE_POLL_MS     = 60_000L   // 1분 마다 요금 polling
-        private const val MQTT_WATCH_MS   = 30_000L   // 30초 마다 MQTT 상태 확인
+        private const val FEE_POLL_MS   = 60_000L
+        private const val MQTT_WATCH_MS = 30_000L
 
-        // ── UI 콜백 (MainActivity에서 등록) ──────────────────────────────────
-        /** 요금 polling 결과: 주차장명, 금액(원), 주차시간(분) */
         var onFeeUpdated: ((lotName: String, amount: Int, durationMinutes: Int) -> Unit)? = null
-        /** 입차 확정 수신 */
         var onParkingConfirmed: ((lotId: String, sessionId: String) -> Unit)? = null
-        /** 결제 완료 수신 */
         var onPaymentComplete: ((txId: String, approvalNo: String, lotId: String, amount: Int) -> Unit)? = null
-        /** MQTT 연결 상태 변경 */
         var onConnectionChanged: ((connected: Boolean) -> Unit)? = null
-        /** 지오펜스 주차장 접근 감지 */
         var onLotApproaching: ((lotId: String, lotName: String) -> Unit)? = null
 
         fun start(context: Context) {
@@ -145,13 +64,9 @@ class CarPayInService : Service() {
         }
     }
 
-    // ── 반복 Runnable ─────────────────────────────────────────────────────────
-
     private val feePollRunnable = object : Runnable {
         override fun run() {
-            if (ParkingStateManager.isParked(applicationContext)) {
-                pollFee()
-            }
+            if (ParkingStateManager.isParked(applicationContext)) pollFee()
             handler.postDelayed(this, FEE_POLL_MS)
         }
     }
@@ -169,8 +84,6 @@ class CarPayInService : Service() {
         }
     }
 
-    // ── 생명주기 ──────────────────────────────────────────────────────────────
-
     override fun onCreate() {
         super.onCreate()
         createChannels()
@@ -180,7 +93,6 @@ class CarPayInService : Service() {
         if (isRunning) return START_STICKY
         isRunning = true
 
-        // API 29+: foregroundServiceType을 반드시 함께 전달해야 크래시 방지
         val notif = buildServiceNotif("CarPayIn 주차 감시 중")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
@@ -194,7 +106,6 @@ class CarPayInService : Service() {
 
         setupCallbacks()
 
-        // 제휴 주차장 목록 갱신
         Thread {
             runCatching {
                 val lots = ApiManager.fetchParkingLots()
@@ -203,24 +114,20 @@ class CarPayInService : Service() {
                 )
                 Log.d(TAG, "주차장 목록 갱신 완료: ${lots.size}개")
             }.onFailure {
-                Log.w(TAG, "주차장 목록 조회 실패 (캐시 사용): ${it.message}")
+                Log.w(TAG, "주차장 목록 조회 실패: ${it.message}")
             }
         }.start()
 
-        // MQTT 연결
         Thread {
             MqttManager.connect(vin)
             handler.post { onConnectionChanged?.invoke(MqttManager.isConnected()) }
         }.start()
 
-        // Geofence 시작
         GeofenceManager.start(this)
 
-        // 반복 루프 시작
         handler.postDelayed(feePollRunnable, FEE_POLL_MS)
         handler.postDelayed(mqttWatchRunnable, MQTT_WATCH_MS)
 
-        // 이미 주차 중이면 즉시 요금 조회 + 노티 갱신
         if (ParkingStateManager.isParked(this)) {
             val lotId = ParkingStateManager.getLotId(this)
             updateServiceNotif("🅿 주차 중 — $lotId")
@@ -243,11 +150,7 @@ class CarPayInService : Service() {
         Log.d(TAG, "서비스 종료")
     }
 
-    // ── 콜백 설정 ─────────────────────────────────────────────────────────────
-
     private fun setupCallbacks() {
-
-        // IGNITION ON → 주차 중이면 요금 자동 조회
         VehicleDataManager.onIgnitionChanged = { ignitionOn ->
             if (ignitionOn && ParkingStateManager.isParked(this)) {
                 Log.d(TAG, "시동 ON + 주차 중 → 요금 자동 조회")
@@ -255,7 +158,6 @@ class CarPayInService : Service() {
             }
         }
 
-        // MQTT: 입차 확정
         MqttManager.onParkingConfirmed = { lotId, sessionId ->
             Log.d(TAG, "입차 확정 수신: $lotId / $sessionId")
             ParkingStateManager.saveParkingState(this, true, lotId, sessionId)
@@ -267,7 +169,6 @@ class CarPayInService : Service() {
             handler.postDelayed({ pollFee() }, 1_000)
         }
 
-        // MQTT: 결제 완료
         MqttManager.onPaymentComplete = { txId, approvalNo, lotId, amount ->
             Log.d(TAG, "결제 완료 수신: $txId / ${"%,d".format(amount)}원")
             TransactionStore.save(this, txId, lotId, amount)
@@ -283,8 +184,8 @@ class CarPayInService : Service() {
             )
         }
 
-        // Geofence: 사전 알림 자동 전송
-        GeofenceManager.onParkingLotApproach = geofence@{ lotId, _, triggerType ->
+        GeofenceManager.onParkingLotApproach = geofence@{ lotId, lotName, triggerType ->
+            handler.post { onLotApproaching?.invoke(lotId, lotName) }
             val plate = ParkingStateManager.getPlateNumber(this) ?: return@geofence
             val token = getValidToken() ?: return@geofence
             Thread {
@@ -298,8 +199,6 @@ class CarPayInService : Service() {
         }
     }
 
-    // ── 요금 Polling ──────────────────────────────────────────────────────────
-
     private fun pollFee() {
         val lotId     = ParkingStateManager.getLotId(this)
         val sessionId = ParkingStateManager.getSessionId(this)
@@ -310,9 +209,7 @@ class CarPayInService : Service() {
                 val fee = ApiManager.queryFee(lotId, sessionId, token)
                 handler.post {
                     onFeeUpdated?.invoke(fee.lotName, fee.amount, fee.durationMinutes)
-                    updateServiceNotif(
-                        "🅿 주차 중 — ${fee.lotName} | ${"%,d".format(fee.amount)}원"
-                    )
+                    updateServiceNotif("🅿 주차 중 — ${fee.lotName} | ${"%,d".format(fee.amount)}원")
                 }
             }.onFailure {
                 Log.e(TAG, "요금 polling 실패: ${it.message}")
@@ -320,12 +217,6 @@ class CarPayInService : Service() {
         }.start()
     }
 
-    // ── 토큰 자동 갱신 ────────────────────────────────────────────────────────
-
-    /**
-     * 유효한 액세스 토큰을 반환합니다.
-     * 만료 5분 전이면 리프레시 토큰으로 자동 갱신 후 반환합니다.
-     */
     private fun getValidToken(): String? {
         val token   = ParkingStateManager.getAccessToken(this) ?: return null
         val expiry  = ParkingStateManager.getTokenExpiry(this)
@@ -349,23 +240,15 @@ class CarPayInService : Service() {
         return token
     }
 
-    // ── Notification ─────────────────────────────────────────────────────────
-
     private fun createChannels() {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_SERVICE,
-                "CarPayIn 서비스",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply { description = "백그라운드 주차 감시 서비스" }
+            NotificationChannel(CHANNEL_SERVICE, "CarPayIn 서비스", NotificationManager.IMPORTANCE_LOW)
+                .apply { description = "백그라운드 주차 감시 서비스" }
         )
         nm.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_EVENTS,
-                "주차·결제 알림",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply { description = "입차 확정 및 결제 완료 알림" }
+            NotificationChannel(CHANNEL_EVENTS, "주차·결제 알림", NotificationManager.IMPORTANCE_HIGH)
+                .apply { description = "입차 확정 및 결제 완료 알림" }
         )
     }
 

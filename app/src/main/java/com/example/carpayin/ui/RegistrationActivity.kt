@@ -1,5 +1,6 @@
 package com.example.carpayin.ui
 
+import com.example.carpayin.R
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -47,6 +48,7 @@ class RegistrationActivity : Activity() {
     private lateinit var tvPollingStatus: TextView
     private lateinit var tvSubMessage: TextView
     private lateinit var btnCancel: Button
+    private lateinit var btnRefreshQr: Button
 
     // ── 세션 데이터 ───────────────────────────────────────────────────────────
     private lateinit var loginSessionId: String
@@ -64,6 +66,7 @@ class RegistrationActivity : Activity() {
         tvPollingStatus = findViewById(R.id.tvPollingStatus)
         tvSubMessage    = findViewById(R.id.tvSubMessage)
         btnCancel       = findViewById(R.id.btnCancel)
+        btnRefreshQr    = findViewById(R.id.btnRefreshQr)
 
         vin            = VehicleDataManager.readVin(this)
         loginSessionId = UUID.randomUUID().toString()
@@ -72,6 +75,18 @@ class RegistrationActivity : Activity() {
             isPolling = false
             setResult(RESULT_CANCELED)
             finish()
+        }
+
+        btnRefreshQr.setOnClickListener {
+            // 기존 폴링 중단 후 새 session_id로 QR 재생성
+            isPolling      = false
+            handler.removeCallbacksAndMessages(null)
+            loginSessionId = UUID.randomUUID().toString()
+            ivQrCode.setImageBitmap(null)
+            tvPollingStatus.text = "스마트폰으로 QR을 스캔해 주세요"
+            tvSubMessage.text    = "마이현대 계정으로 로그인하면\n차량이 자동으로 연동됩니다"
+            renderQrCode()
+            startPolling()
         }
 
         renderQrCode()
