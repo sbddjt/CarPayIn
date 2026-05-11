@@ -1,40 +1,59 @@
 @echo off
-REM CarPayIn 백엔드 전체 서버 시작 스크립트
-REM 실행 전: pip install fastapi uvicorn httpx paho-mqtt
 
 echo ============================================
-echo  CarPayIn 서버 시작
+echo  CarPayIn Server Start
 echo ============================================
 echo.
 
-REM 1) Mosquitto MQTT 브로커 (설치된 경우)
-echo [1/4] MQTT 브로커 시작...
-start "MQTT Broker" cmd /k "mosquitto -v"
+REM Check Python
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERROR] Python not found. Please install Python and add to PATH.
+    pause
+    exit /b 1
+)
+
+REM Install packages
+echo [1/5] Installing packages...
+python -m pip install fastapi "uvicorn[standard]" httpx paho-mqtt --quiet
+echo      Done
+echo.
+
+REM MQTT Broker
+echo [2/5] MQTT Broker...
+where mosquitto >nul 2>&1
+if %errorlevel%==0 (
+    start "MQTT" cmd /k "mosquitto -v"
+    echo      Started
+) else (
+    echo      Skipped (mosquitto not installed)
+)
 timeout /t 2 /nobreak >nul
 
-REM 2) Mock PG 서버 (포트 9000)
-echo [2/4] Mock PG 서버 시작 (포트 9000)...
-start "Mock PG" cmd /k "cd /d %~dp0mock_pg && uvicorn main:app --port 9000 --reload"
+REM Mock PG - port 9000
+echo [3/5] Mock PG (port 9000)...
+start "Mock PG" cmd /k "cd /d %~dp0mock_pg && python -m uvicorn main:app --host 0.0.0.0 --port 9000 --reload"
 timeout /t 2 /nobreak >nul
 
-REM 3) 아이파킹 Mock PMS (포트 8001)
-echo [3/4] 아이파킹 Mock PMS 시작 (포트 8001)...
-start "Parking PMS" cmd /k "cd /d %~dp0parking_pms && uvicorn main:app --port 8001 --reload"
+REM Parking PMS - port 8001
+echo [4/5] Parking PMS (port 8001)...
+start "Parking PMS" cmd /k "cd /d %~dp0parking_pms && python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
-REM 4) 메인 백엔드 서버 (포트 8000)
-echo [4/4] CarPayIn 백엔드 시작 (포트 8000)...
-start "Backend" cmd /k "cd /d %~dp0backend_server && uvicorn main:app --port 8000 --reload"
+REM Main Backend - port 8000  (--host 0.0.0.0 : phone QR scan access)
+echo [5/5] Main Backend (port 8000)...
+start "Backend" cmd /k "cd /d %~dp0backend_server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
 
 echo.
 echo ============================================
-echo  모든 서버 시작 완료!
-echo  - 백엔드:   http://localhost:8000/docs
-echo  - PMS:      http://localhost:8001/docs
-echo  - Mock PG:  http://localhost:9000/docs
-echo  - MQTT:     localhost:1883
+echo  All servers started!
+echo.
+echo  Backend API : http://localhost:8000/docs
+echo  Parking PMS : http://localhost:8001/docs
+echo  Mock PG     : http://localhost:9000/docs
+echo.
+echo  Emulator  : http://10.0.2.2:8000
+echo  Phone QR  : http://192.168.201.213:8000
 echo ============================================
 echo.
-echo Pleos Connect 에뮬레이터에서 앱 실행 후
-echo http://10.0.2.2:8000 으로 연결됩니다.
 pause

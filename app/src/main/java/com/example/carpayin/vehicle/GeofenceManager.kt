@@ -1,4 +1,4 @@
-package com.example.carpayin
+package com.example.carpayin.vehicle
 
 import android.content.Context
 import android.location.Location

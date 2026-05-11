@@ -1,7 +1,5 @@
-package com.example.carpayin
+package com.example.carpayin.ui
 
-import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -16,6 +14,16 @@ import android.widget.RelativeLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import com.example.carpayin.data.ParkingStateManager
+import com.example.carpayin.data.TransactionStore
+import com.example.carpayin.network.ApiManager
+import com.example.carpayin.network.MqttManager
+import com.example.carpayin.service.CarPayInService
+import com.example.carpayin.vehicle.GeofenceManager
+import com.example.carpayin.vehicle.NaviHelper
+import com.example.carpayin.vehicle.VehicleDataManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -129,15 +137,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 상태 전환
-    // ─────────────────────────────────────────────────────────────────────────
-
     private fun showUnregisteredState() {
         layoutUnregistered.visibility = View.VISIBLE
         layoutRegistered.visibility   = View.GONE
-        btnResetApp.visibility        = View.GONE // 미등록일 땐 초기화 버튼 숨김
-        tvStatusDot.setTextColor(0xFF333333.toInt())
+        btnResetApp.visibility        = View.GONE
 
         findViewById<Button>(R.id.btnRegister).setOnClickListener {
             startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
@@ -147,12 +150,22 @@ class MainActivity : AppCompatActivity() {
     private fun showRegisteredState() {
         layoutUnregistered.visibility = View.GONE
         layoutRegistered.visibility   = View.VISIBLE
-        btnResetApp.visibility        = View.VISIBLE // 등록 상태에서 초기화 버튼 표시
+        btnResetApp.visibility        = View.VISIBLE
 
-        tvVinShort.text = maskVin(vin)
+        // ── 차량 정보 ─────────────────────────────────────────────────────────
+        tvVinShort.text    = maskVin(vin)
         tvPlateNumber.text = ParkingStateManager.getPlateNumber(this) ?: "—"
 
-        // 등록된 카드 UI 테마 적용
+        // ── 마이현대 계정 정보 표시 ───────────────────────────────────────────
+        val userName  = ParkingStateManager.getHyundaiUserName(this)
+        val modelName = ParkingStateManager.getHyundaiModelName(this)
+
+        // 차량 모델명이 있으면 VIN 자리에 함께 표시
+        if (modelName.isNotEmpty()) {
+            tvVinShort.text = "$modelName  ${maskVin(vin)}"
+        }
+
+        // ── 마이현대 연동 결제 수단 카드 UI ──────────────────────────────────
         val brand    = ParkingStateManager.getCardBrand(this)
         val lastFour = ParkingStateManager.getCardLastFour(this)
         val theme    = getCardBrandTheme(brand)
@@ -161,17 +174,16 @@ class MainActivity : AppCompatActivity() {
         mainCardBrand.text = theme.shortName
         mainCardBrand.setTextColor(theme.brandTextColor)
         mainCardNetwork.text = theme.network
-        mainCardNumber.text = "•••• •••• •••• $lastFour"
+        mainCardNumber.text  = "•••• •••• •••• $lastFour"
 
-        // 카드 변경
+        // 계정 재연동 (마이현대 재로그인)
         findViewById<Button>(R.id.btnChangeCard).setOnClickListener {
+            val accountLabel = if (userName.isNotEmpty()) "$userName 님 계정" else "마이현대 계정"
             AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
-                .setTitle("카드 변경")
-                .setMessage("등록된 카드를 변경하시겠습니까?")
-                .setPositiveButton("변경하기") { _, _ ->
-                    val intent = Intent(this, RegistrationActivity::class.java)
-                    intent.putExtra("reregister", true)
-                    startActivityForResult(intent, 100)
+                .setTitle("계정 재연동")
+                .setMessage("$accountLabel\n\nQR 스캔으로 마이현대 계정을 다시 연동하시겠습니까?")
+                .setPositiveButton("재연동") { _, _ ->
+                    startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
                 }
                 .setNegativeButton("취소", null)
                 .show()
@@ -753,11 +765,20 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in API level 29")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 100 && resultCode == RESULT_OK) {
-            // 등록 완료 → 등록 상태 화면으로 전환
-            showRegisteredState()
-            startServicesAndListeners()
-            Toast.makeText(this, "✓ 카드 등록이 완료되었습니다", Toast.LENGTH_SHORT).show()
+        if (requestCode == 100) {
+            when (resultCode) {
+                RESULT_OK -> {
+                    // 마이현대 연동 완료 → 메인 화면 진입
+                    showRegisteredState()
+                    startServicesAndListeners()
+                }
+                RESULT_CANCELED -> {
+                    // QR 화면에서 취소 → 미등록 상태면 다시 QR 화면으로
+                    if (!ParkingStateManager.isRegistered(this)) {
+                        startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
+                    }
+                }
+            }
         }
     }
 
@@ -854,10 +875,9 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ── VIN 마스킹 ────────────────────────────────────────────────────────────
+    // ── VIN 마스킹 유틸 ───────────────────────────────────────────────────────
 
     private fun maskVin(vin: String): String {
-        if (vin.length < 8) return "VIN: ----"
-        return "VIN: ${vin.take(5)}•••••••••••"
+        return if (vin.length >= 6) "VIN: ${vin.take(3)}•••${vin.takeLast(3)}" else "VIN: $vin"
     }
 }

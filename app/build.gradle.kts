@@ -41,11 +41,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     implementation("com.google.zxing:core:3.5.1")
 
-    // Android Car API 스텁 (컴파일 전용)
-    // 1순위: 프로젝트 로컬 스텁 JAR (generate_car_stubs.py 로 생성)
-    // 2순위: AAOS SDK가 설치된 경우 실제 JAR 경로로 교체
-    compileOnly(fileTree("libs") { include("*.jar") })
-
+    // android.car.jar 불필요 — VehicleDataManager가 리플렉션으로 Car API 호출
+    // 실제 AAOS 기기에서는 런타임에 android.car 클래스를 찾아 사용
     // Pleos Vehicle SDK (에뮬레이터용 VHAL 시뮬레이션)
     implementation("ai.pleos.playground:Vehicle:2.0.3")
 

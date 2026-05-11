@@ -18,12 +18,12 @@
         android:layout_marginBottom="16dp"/>
 
     <TextView
-        android:id="@+id/tvRegDetail"
+        android:id="@+id/tvSubMessage"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="스마트폰 카메라로 아래 QR 코드를 스캔하여\n마이현대 로그인을 진행해 주세요."
+        android:text="마이현대 계정으로 로그인하면&#10;차량이 자동으로 연동됩니다"
         android:textColor="#AAAAAA"
-        android:textSize="16sp"
+        android:textSize="15sp"
         android:gravity="center"
         android:layout_marginBottom="32dp"/>
 

@@ -62,6 +62,22 @@ def init_db():
                 idempotency_key TEXT UNIQUE,
                 timestamp       TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS login_sessions (
+                session_id     TEXT PRIMARY KEY,
+                vin            TEXT,
+                status         TEXT DEFAULT 'pending',   -- pending / complete
+                access_token   TEXT,
+                refresh_token  TEXT,
+                plate_number   TEXT,
+                user_id        TEXT,
+                user_name      TEXT,
+                model_name     TEXT,
+                vin_list_json  TEXT,
+                card_last_four TEXT DEFAULT '****',
+                card_brand     TEXT DEFAULT '현대카드',
+                created_at     TEXT
+            );
         """)
 
 @contextmanager

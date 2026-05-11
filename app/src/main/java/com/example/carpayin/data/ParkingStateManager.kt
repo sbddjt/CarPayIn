@@ -1,4 +1,4 @@
-package com.example.carpayin
+package com.example.carpayin.data
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -142,4 +142,28 @@ object ParkingStateManager {
 
     fun getSessionId(context: Context): String =
         getPrefs(context).getString("session_id", "") ?: ""
+
+    // ── 마이현대 사용자 정보 ──────────────────────────────────────────────────
+    fun saveHyundaiUserInfo(
+        context: Context,
+        userId: String,
+        userName: String,
+        modelName: String
+    ) {
+        getPrefs(context).edit()
+            .putString("hyundai_user_id", userId)
+            .putString("hyundai_user_name", userName)
+            .putString("hyundai_model_name", modelName)
+            .apply()
+        Log.d(TAG, "마이현대 사용자 저장: $userName / $modelName")
+    }
+
+    fun getHyundaiUserId(context: Context): String =
+        getPrefs(context).getString("hyundai_user_id", "") ?: ""
+
+    fun getHyundaiUserName(context: Context): String =
+        getPrefs(context).getString("hyundai_user_name", "") ?: ""
+
+    fun getHyundaiModelName(context: Context): String =
+        getPrefs(context).getString("hyundai_model_name", "") ?: ""
 }

@@ -38,7 +38,7 @@
 
         <!-- 메인 화면 -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -46,14 +46,14 @@
             </intent-filter>
         </activity>
 
-        <!-- 최초 등록 / 카드 재등록 화면 -->
+        <!-- 마이현대 OAuth QR 연동 화면 -->
         <activity
-            android:name=".RegistrationActivity"
+            android:name=".ui.RegistrationActivity"
             android:exported="false" />
 
         <!-- 백그라운드 주차 감시 서비스 -->
         <service
-            android:name=".CarPayInService"
+            android:name=".service.CarPayInService"
             android:exported="false"
             android:foregroundServiceType="location" />
 

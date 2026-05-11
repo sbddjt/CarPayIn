@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from contextlib import asynccontextmanager
-import uuid, time, hashlib, hmac as hmac_lib
+import uuid, time, hashlib, hmac as hmac_lib, json
 from datetime import datetime
+from urllib.parse import urlencode
 import httpx
 
 from database import init_db, get_conn
@@ -20,7 +21,7 @@ HMAC_SECRET     = "mock_pg_secret_key_carpayin"
 # ── 현대 개발자 포털 설정 ───────────────────────────────────────────────────
 HYUNDAI_CLIENT_ID     = "26b816d9-7764-42bd-bdbf-ff49f2e33098"
 HYUNDAI_CLIENT_SECRET = "VcFPoKezkzlyhv0C4V3dMhIRyUz91OG70jdiAJLrCPd6rIPD"
-HYUNDAI_REDIRECT_URI  = "http://localhost:8080/auth/redirect"
+HYUNDAI_REDIRECT_URI  = "http://localhost:8000/auth/redirect"
 
 # 현대 계정 API (OpenID Connect)
 HYUNDAI_TOKEN_URL    = "https://accounts.hyundai.com/auth/realms/HyundaiAccount/protocol/openid-connect/token"
@@ -54,12 +55,74 @@ def health():
 # 현대 OAuth 흐름
 # ══════════════════════════════════════════════════════════════════════════
 
+@app.get("/auth/hyundai/start", tags=["현대 OAuth"])
+async def hyundai_start(session_id: str, vin: str = ""):
+    """
+    AAOS QR 스캔 → 모바일 브라우저가 이 URL을 엶
+    session_id + vin을 DB에 저장하고 현대 OAuth 페이지로 리디렉션
+    """
+    now = datetime.now().isoformat()
+    with get_conn() as con:
+        con.execute("""
+            INSERT OR REPLACE INTO login_sessions (session_id, vin, status, created_at)
+            VALUES (?, ?, 'pending', ?)
+        """, (session_id, vin, now))
+
+    params = urlencode({
+        "client_id":     HYUNDAI_CLIENT_ID,
+        "redirect_uri":  HYUNDAI_REDIRECT_URI,
+        "response_type": "code",
+        "scope":         "openid profile",
+        "state":         session_id,   # 콜백에서 어느 AAOS 세션인지 찾기 위해 그대로 전달
+    })
+    hyundai_auth_url = (
+        "https://accounts.hyundai.com/auth/realms/HyundaiAccount"
+        f"/protocol/openid-connect/auth?{params}"
+    )
+    print(f"[QR 시작] session={session_id[:8]}… vin={vin[:8] if vin else '없음'}… → 현대 OAuth 리디렉션")
+    return RedirectResponse(hyundai_auth_url)
+
+
+@app.get("/auth/session/{session_id}/status", tags=["현대 OAuth"])
+def session_status(session_id: str):
+    """
+    AAOS 앱 폴링 (2초 간격) — QR 로그인 완료 여부 확인
+    완료 시 토큰·차량 정보·카드 정보 일괄 반환
+    """
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT * FROM login_sessions WHERE session_id=?", (session_id,)
+        ).fetchone()
+
+    if not row or row["status"] != "complete":
+        return {"status": "pending"}
+
+    vin_list = []
+    try:
+        vin_list = json.loads(row["vin_list_json"] or "[]")
+    except Exception:
+        pass
+
+    return {
+        "status":         "complete",
+        "access_token":   row["access_token"],
+        "refresh_token":  row["refresh_token"],
+        "plate_number":   row["plate_number"],
+        "user_id":        row["user_id"],
+        "user_name":      row["user_name"],
+        "model_name":     row["model_name"],
+        "vin_list":       vin_list,
+        "card_last_four": row["card_last_four"],
+        "card_brand":     row["card_brand"],
+    }
+
+
 @app.get("/auth/redirect", tags=["현대 OAuth"])
 async def hyundai_auth_redirect(code: str = None, state: str = None, error: str = None):
     """
-    현대 계정 API → 로그인 완료 후 authorization code 수신
-    AAOS WebView가 이 URL을 intercept하므로 실제로 로드되는 경우는 드물지만
-    브라우저 테스트 or fallback 용도로 서버에서도 처리
+    현대 계정 API → 로그인 완료 후 authorization code + state(=session_id) 수신
+    OAuth 교환 완료 후 login_sessions 테이블을 'complete' 로 업데이트
+    → AAOS 앱 폴링이 이를 감지하고 자동으로 연동 완료 처리
     """
     if error:
         print(f"[현대 OAuth] 로그인 오류: {error}")
@@ -68,27 +131,61 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
     if not code:
         return HTMLResponse("<h3>Authorization Code 없음</h3>", status_code=400)
 
-    print(f"[현대 OAuth] /auth/redirect — code 수신: {code[:8]}…")
+    print(f"[현대 OAuth] /auth/redirect — code={code[:8]}… session={state[:8] if state else '없음'}…")
 
     try:
-        result = await _exchange_hyundai_code(code)
-        # 앱 WebView가 intercept했을 경우 이 HTML은 표시 안 됨
-        return HTMLResponse(f"""
-            <html><body>
-            <h3>✅ 현대 로그인 완료</h3>
-            <p>user_id: {result.get('user_id','')}</p>
-            <p>차량 수: {len(result.get('vin_list',[]))}대</p>
-            <script>
-              if(window.Android) {{
-                window.Android.onHyundaiAuthComplete(
-                  '{result.get("access_token","")}',
-                  '{result.get("refresh_token","")}',
-                  '{result.get("plate_number","")}',
-                  '{result.get("user_id","")}'
-                );
-              }}
-            </script>
-            </body></html>
+        # VHAL VIN은 state로 session_id를 찾아 DB에서 꺼냄
+        vin_vhal = ""
+        if state:
+            with get_conn() as con:
+                row = con.execute(
+                    "SELECT vin FROM login_sessions WHERE session_id=?", (state,)
+                ).fetchone()
+                if row:
+                    vin_vhal = row["vin"] or ""
+
+        result = await _exchange_hyundai_code(code, vin_vhal=vin_vhal)
+
+        # state = AAOS QR session_id → login_sessions 완료 처리
+        if state:
+            model_name = ""
+            if result.get("vin_list"):
+                matched = next(
+                    (v for v in result["vin_list"] if v["vin"] == vin_vhal),
+                    result["vin_list"][0]
+                )
+                model_name = matched.get("model_name", "")
+
+            with get_conn() as con:
+                con.execute("""
+                    UPDATE login_sessions SET
+                        status='complete',
+                        access_token=?, refresh_token=?, plate_number=?,
+                        user_id=?, user_name=?, model_name=?,
+                        vin_list_json=?, card_last_four=?, card_brand=?
+                    WHERE session_id=?
+                """, (
+                    result["access_token"],
+                    result["refresh_token"],
+                    result["plate_number"],
+                    result.get("user_id", ""),
+                    result.get("user_name", ""),
+                    model_name,
+                    json.dumps(result.get("vin_list", [])),
+                    "****",
+                    "현대카드",
+                    state,
+                ))
+            print(f"[QR 완료] session={state[:8]}… → AAOS 앱 폴링 해제됨")
+
+        return HTMLResponse("""
+            <html>
+            <head><meta charset="utf-8"></head>
+            <body style="font-family:sans-serif;text-align:center;padding:40px;">
+              <h2>✅ 마이현대 로그인 완료</h2>
+              <p>차량 HU 화면으로 돌아가세요.<br>앱이 자동으로 연동됩니다.</p>
+            </body>
+            </html>
         """)
     except Exception as e:
         print(f"[현대 OAuth] 처리 실패: {e}")
