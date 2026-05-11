@@ -209,16 +209,20 @@ class RegistrationActivity : Activity() {
         val displayName = result.userName.ifEmpty { "차량" }
         Toast.makeText(this, "$displayName 님, 차량 인증 완료! 카드를 등록해 주세요.", Toast.LENGTH_SHORT).show()
 
-        // ── 카드 등록 화면으로 이동 ───────────────────────────────────────────
-        // Mock PG WebView 카드 등록 (최초 1회) → 이후 결제는 완전 자동
-        handler.postDelayed({
-            val intent = Intent(this, CardRegistrationActivity::class.java).apply {
+        // ── [수정됨] 자동 이동 삭제 및 '카드 등록 버튼' 노출 ───────────────────
+        // 인증이 완료되면 QR 코드를 숨기고, 기존 'QR 새로고침' 버튼을 '카드 등록하기' 버튼으로 재활용합니다.
+        ivQrCode.visibility = View.GONE
+
+        btnRefreshQr.text = "결제 카드 등록하기"
+        btnRefreshQr.setOnClickListener {
+            // 사용자가 버튼을 직접 누르는 이 순간에만 CardRegistrationActivity를 띄웁니다!
+            val intent = Intent(this@RegistrationActivity, CardRegistrationActivity::class.java).apply {
                 putExtra(CardRegistrationActivity.EXTRA_VIN,          selectedVin)
                 putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, result.accessToken)
                 putExtra(CardRegistrationActivity.EXTRA_USER_NAME,    displayName)
             }
             startActivityForResult(intent, REQ_CARD_REG)
-        }, 800)
+        }
     }
 
     @Deprecated("Use registerForActivityResult")
