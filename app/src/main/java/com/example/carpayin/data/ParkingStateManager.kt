@@ -175,4 +175,28 @@ object ParkingStateManager {
 
     fun getHyundaiModelName(context: Context): String =
         getPrefs(context).getString("hyundai_model_name", "") ?: ""
+
+    // ── 세션 완전 초기화 (리프레시 토큰 만료 시 재로그인 유도) ──────────────
+    /**
+     * 토큰 / 카드 / 주차 상태 / OAuth 플래그 전체 삭제.
+     * 앱이 미등록 상태(QR 로그인 화면)로 돌아가도록 만든다.
+     */
+    fun clearSession(context: Context) {
+        getPrefs(context).edit()
+            .remove("access_token")
+            .remove("refresh_token")
+            .remove("token_expiry")
+            .remove("refresh_expiry")
+            .remove("payment_method_id")
+            .remove("card_last_four")
+            .remove("card_brand")
+            .remove("plate_number")
+            .remove("parked")
+            .remove("lot_id")
+            .remove("session_id")
+            .remove("oauth_complete")
+            .putBoolean("registered", false)
+            .apply()
+        Log.d(TAG, "세션 초기화 완료 — 재로그인 필요")
+    }
 }

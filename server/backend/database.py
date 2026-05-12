@@ -1,19 +1,20 @@
 import sqlite3, os
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 DB_PATH = "backend.db"
 
-def print_schema():
-    """서버 시작 시 실제 vehicles 컬럼 목록 출력 (디버그용)"""
-    try:
-        con = sqlite3.connect(DB_PATH)
-        cols = con.execute("PRAGMA table_info(vehicles)").fetchall()
-        con.close()
-        names = [c[1] for c in cols]
-        print(f"[DB] backend.db 경로: {os.path.abspath(DB_PATH)}")
-        print(f"[DB] vehicles 컬럼: {names}")
-    except Exception as e:
-        print(f"[DB] 스키마 확인 실패: {e}")
+# 토큰 유효기간 상수
+ACCESS_TOKEN_TTL_HOURS   = 24        # 액세스 토큰: 24시간
+REFRESH_TOKEN_TTL_DAYS   = 30        # 리프레시 토큰: 30일
+
+def token_expires_at() -> str:
+    """액세스 토큰 만료 시각 (ISO 형식)"""
+    return (datetime.now() + timedelta(hours=ACCESS_TOKEN_TTL_HOURS)).isoformat()
+
+def refresh_expires_at() -> str:
+    """리프레시 토큰 만료 시각 (ISO 형식)"""
+    return (datetime.now() + timedelta(days=REFRESH_TOKEN_TTL_DAYS)).isoformat()
 
 # vehicles 테이블에 추가될 수 있는 컬럼 목록 (기존 DB 마이그레이션용)
 _VEHICLES_COLUMNS = [
@@ -48,6 +49,27 @@ def _migrate(con):
         con.execute("ALTER TABLE login_sessions ADD COLUMN vin_hash TEXT DEFAULT ''")
         print("[DB 마이그레이션] login_sessions.vin_hash 컬럼 추가")
 
+    # tokens 테이블 마이그레이션 (만료 시각 컬럼 추가)
+    tk_existing = {row[1] for row in con.execute("PRAGMA table_info(tokens)").fetchall()}
+    if "expires_at" not in tk_existing:
+        # 기존 토큰은 지금부터 24시간 유효로 설정
+        con.execute("ALTER TABLE tokens ADD COLUMN expires_at TEXT DEFAULT ''")
+        con.execute(f"UPDATE tokens SET expires_at='{token_expires_at()}'")
+        print("[DB 마이그레이션] tokens.expires_at 컬럼 추가")
+    if "refresh_expires_at" not in tk_existing:
+        con.execute("ALTER TABLE tokens ADD COLUMN refresh_expires_at TEXT DEFAULT ''")
+        con.execute(f"UPDATE tokens SET refresh_expires_at='{refresh_expires_at()}'")
+        print("[DB 마이그레이션] tokens.refresh_expires_at 컬럼 추가")
+
+def cleanup_expired_tokens(con):
+    """만료된 토큰 DB에서 삭제 (서버 시작 시 호출)"""
+    now = datetime.now().isoformat()
+    result = con.execute(
+        "DELETE FROM tokens WHERE refresh_expires_at != '' AND refresh_expires_at < ?", (now,)
+    )
+    if result.rowcount > 0:
+        print(f"[DB] 만료 토큰 {result.rowcount}건 정리")
+
 def init_db():
     with get_conn() as con:
         con.executescript("""
@@ -65,7 +87,6 @@ def init_db():
                 year              INTEGER DEFAULT 0
             );
 
-            -- 현대 OAuth 토큰 (VIN과 별도 관리)
             CREATE TABLE IF NOT EXISTS hyundai_tokens (
                 vin                   TEXT PRIMARY KEY,
                 hyundai_access_token  TEXT,
@@ -73,15 +94,15 @@ def init_db():
                 issued_at             TEXT
             );
 
-            -- CarPayIn 서비스 토큰
             CREATE TABLE IF NOT EXISTS tokens (
-                vin           TEXT PRIMARY KEY,
-                access_token  TEXT,
-                refresh_token TEXT,
-                issued_at     TEXT
+                vin                 TEXT PRIMARY KEY,
+                access_token        TEXT,
+                refresh_token       TEXT,
+                issued_at           TEXT,
+                expires_at          TEXT DEFAULT '',
+                refresh_expires_at  TEXT DEFAULT ''
             );
 
-            -- 지오펜스/내비 기반 입차 사전 알림
             CREATE TABLE IF NOT EXISTS pre_notify (
                 plate      TEXT,
                 lot_id     TEXT,
@@ -90,7 +111,6 @@ def init_db():
                 PRIMARY KEY (plate, lot_id)
             );
 
-            -- 주차 세션 (입차 확정 ~ 출차 완료)
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id  TEXT PRIMARY KEY,
                 vin         TEXT,
@@ -102,7 +122,6 @@ def init_db():
                 status      TEXT DEFAULT 'active'
             );
 
-            -- 결제 트랜잭션
             CREATE TABLE IF NOT EXISTS transactions (
                 tx_id           TEXT PRIMARY KEY,
                 session_id      TEXT,
@@ -113,11 +132,39 @@ def init_db():
                 timestamp       TEXT
             );
 
-            -- Mock PG 카드 등록 주문 (order_id → VIN 매핑)
             CREATE TABLE IF NOT EXISTS card_orders (
                 order_id   TEXT PRIMARY KEY,
                 vin        TEXT,
                 created_at TEXT
             );
 
-            -- 마
+            CREATE TABLE IF NOT EXISTS login_sessions (
+                session_id    TEXT PRIMARY KEY,
+                vin_hash      TEXT DEFAULT '',
+                vin           TEXT DEFAULT '',
+                status        TEXT DEFAULT 'pending',
+                access_token  TEXT DEFAULT '',
+                refresh_token TEXT DEFAULT '',
+                plate_number  TEXT DEFAULT '',
+                user_id       TEXT DEFAULT '',
+                user_name     TEXT DEFAULT '',
+                model_name    TEXT DEFAULT '',
+                vin_list_json TEXT DEFAULT '[]',
+                created_at    TEXT
+            );
+        """)
+        _migrate(con)
+        cleanup_expired_tokens(con)
+
+@contextmanager
+def get_conn():
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()

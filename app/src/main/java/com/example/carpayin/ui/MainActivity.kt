@@ -21,6 +21,7 @@ import com.example.carpayin.data.ParkingStateManager
 import com.example.carpayin.data.TransactionStore
 import com.example.carpayin.network.ApiManager
 import com.example.carpayin.network.MqttManager
+import com.example.carpayin.network.SessionExpiredException
 import com.example.carpayin.service.CarPayInService
 import com.example.carpayin.vehicle.GeofenceManager
 import com.example.carpayin.vehicle.NaviHelper
@@ -275,15 +276,18 @@ class MainActivity : AppCompatActivity() {
 
         tvParkingEstFee.text = "조회 중..."
         val sessionId = ParkingStateManager.getSessionId(this)
-        val token = ParkingStateManager.getAccessToken(this) ?: return
         Thread {
             try {
-                val fee = ApiManager.queryFee(lotId, sessionId, token)
+                val fee = ApiManager.withAutoRefresh(this) { token ->
+                    ApiManager.queryFee(lotId, sessionId, token)
+                }
                 lastAmount = fee.amount
                 handler.post {
                     tvActiveLotName.text = fee.lotName
                     tvParkingEstFee.text = "%,d원".format(fee.amount)
                 }
+            } catch (e: SessionExpiredException) {
+                handler.post { onSessionExpired() }
             } catch (e: Exception) {
                 handler.post { tvParkingEstFee.text = "—" }
             }
@@ -568,7 +572,6 @@ class MainActivity : AppCompatActivity() {
     private fun queryFeeAndShowSettlement() {
         val lotId     = ParkingStateManager.getLotId(this)
         val sessionId = ParkingStateManager.getSessionId(this)
-        val token     = ParkingStateManager.getAccessToken(this) ?: return
 
         tvPaymentStatus.text = "요금 조회 중..."
         tvStatusDot.setTextColor(0xFFFFD700.toInt())
@@ -576,11 +579,15 @@ class MainActivity : AppCompatActivity() {
 
         Thread {
             try {
-                val fee = ApiManager.queryFee(lotId, sessionId, token)
+                val fee = ApiManager.withAutoRefresh(this) { token ->
+                    ApiManager.queryFee(lotId, sessionId, token)
+                }
                 handler.post {
                     btnSettleNow.isEnabled = true
                     showSettlementDialog(fee, sessionId)
                 }
+            } catch (e: SessionExpiredException) {
+                handler.post { onSessionExpired() }
             } catch (e: Exception) {
                 handler.post {
                     tvPaymentStatus.text = "요금 조회 실패"
@@ -624,11 +631,11 @@ class MainActivity : AppCompatActivity() {
         tvStatusDot.setTextColor(0xFFFFD700.toInt())
         btnSettleNow.isEnabled = false
 
-        val token = ParkingStateManager.getAccessToken(this) ?: return
-
         Thread {
             try {
-                val result = ApiManager.requestPayment(sessionId, amount, token)
+                val result = ApiManager.withAutoRefresh(this) { token ->
+                    ApiManager.requestPayment(sessionId, amount, token)
+                }
                 val lotId  = ParkingStateManager.getLotId(this)
 
                 TransactionStore.save(this, result.transactionId, lotId, amount)
@@ -642,6 +649,8 @@ class MainActivity : AppCompatActivity() {
                     refreshTransactionHistory()
                     showPaymentComplete(result.transactionId, result.approvalNumber, lotId, amount)
                 }
+            } catch (e: SessionExpiredException) {
+                handler.post { onSessionExpired() }
             } catch (e: Exception) {
                 handler.post {
                     btnSettleNow.isEnabled = true
@@ -812,6 +821,31 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 세션 만료 처리
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 액세스 토큰 갱신 실패(리프레시 토큰도 만료)로 인한 강제 재로그인.
+     * - 저장된 세션 전체 삭제 (ParkingStateManager.clearSession)
+     * - 다이얼로그로 안내 → 확인 시 RegistrationActivity 재시작
+     */
+    private fun onSessionExpired() {
+        AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+            .setTitle("세션 만료")
+            .setMessage("로그인 세션이 만료되었습니다.\n다시 로그인해 주세요.")
+            .setCancelable(false)
+            .setPositiveButton("다시 로그인") { _, _ ->
+                ParkingStateManager.clearSession(this)
+                CarPayInService.stop(this)
+                showUnregisteredState()
+                startActivityForResult(
+                    Intent(this, RegistrationActivity::class.java), 100
+                )
+            }
+            .show()
     }
 
     override fun onResume() {

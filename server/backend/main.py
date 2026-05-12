@@ -6,7 +6,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 import httpx
 
-from database import init_db, get_conn
+from database import init_db, get_conn, token_expires_at, refresh_expires_at
 from models import (
     ConfirmVinRequest,
     PreNotifyRequest, EntryWebhookRequest,
@@ -248,30 +248,47 @@ def confirm_vin(req: ConfirmVinRequest):
 
 @app.post("/auth/refresh", tags=["마이현대 OAuth"])
 def refresh_token(request_body: dict):
-    """액세스 토큰 갱신"""
+    """
+    액세스 토큰 갱신.
+    리프레시 토큰 만료 시 HTTP 401 (detail: "refresh_expired") — 앱이 재로그인 유도.
+    갱신 성공 시 액세스 토큰(24h) + 리프레시 토큰(30d) 모두 새로 발급.
+    """
     refresh = request_body.get("refresh_token", "")
     if not refresh:
         raise HTTPException(400, "refresh_token 필요")
 
     with get_conn() as con:
         row = con.execute(
-            "SELECT vin FROM tokens WHERE refresh_token=?", (refresh,)
+            "SELECT vin, refresh_expires_at FROM tokens WHERE refresh_token=?", (refresh,)
         ).fetchone()
 
     if not row:
         raise HTTPException(401, "유효하지 않은 refresh_token")
 
+    # 리프레시 토큰 만료 체크
+    r_expires = row["refresh_expires_at"] or ""
+    if r_expires and datetime.now().isoformat() > r_expires:
+        raise HTTPException(401, "refresh_expired")
+
     new_access  = f"at_{uuid.uuid4().hex}"
     new_refresh = f"rt_{uuid.uuid4().hex}"
-    now = datetime.now().isoformat()
+    now         = datetime.now().isoformat()
+    new_exp     = token_expires_at()
+    new_r_exp   = refresh_expires_at()
 
     with get_conn() as con:
         con.execute("""
-            UPDATE tokens SET access_token=?, refresh_token=?, issued_at=?
+            UPDATE tokens
+            SET access_token=?, refresh_token=?, issued_at=?,
+                expires_at=?, refresh_expires_at=?
             WHERE refresh_token=?
-        """, (new_access, new_refresh, now, refresh))
+        """, (new_access, new_refresh, now, new_exp, new_r_exp, refresh))
 
-    return {"access_token": new_access, "refresh_token": new_refresh}
+    return {
+        "access_token":  new_access,
+        "refresh_token": new_refresh,
+        "expires_at":    new_exp,
+    }
 
 
 # ── 내부: 현대 OAuth code 교환 ────────────────────────────────────────────
@@ -400,9 +417,11 @@ async def _exchange_hyundai_code(code: str, vin_hash: str = "", session_id: str 
                 VALUES (?, ?, ?, ?)
             """, (matched_vin, hyundai_access, hyundai_refresh, now))
             con.execute("""
-                INSERT OR REPLACE INTO tokens (vin, access_token, refresh_token, issued_at)
-                VALUES (?, ?, ?, ?)
-            """, (matched_vin, access_token, refresh_token, now))
+                INSERT OR REPLACE INTO tokens
+                    (vin, access_token, refresh_token, issued_at, expires_at, refresh_expires_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (matched_vin, access_token, refresh_token, now,
+                  token_expires_at(), refresh_expires_at()))
 
     print(f"[OAuth 완료] vin={matched_vin[:8] if matched_vin else '없음'}… user={user_id[:8]}… plate={plate} — 카드 등록 대기 중")
     return {
@@ -424,6 +443,7 @@ def _vin_from_token(request: Request) -> str:
     """
     Authorization 헤더의 Bearer 토큰 → 서버 내부에서 VIN 조회.
     VIN을 URL/바디에 싣지 않아 외부 노출 차단.
+    액세스 토큰 만료 시 HTTP 401 (detail: "token_expired") 반환.
     """
     auth = request.headers.get("Authorization", "")
     token = auth.removeprefix("Bearer ").strip()
@@ -431,10 +451,14 @@ def _vin_from_token(request: Request) -> str:
         raise HTTPException(401, "Authorization 헤더 필요")
     with get_conn() as con:
         row = con.execute(
-            "SELECT vin FROM tokens WHERE access_token=?", (token,)
+            "SELECT vin, expires_at FROM tokens WHERE access_token=?", (token,)
         ).fetchone()
     if not row:
         raise HTTPException(401, "유효하지 않은 토큰")
+    # 만료 시각 체크
+    expires = row["expires_at"] or ""
+    if expires and datetime.now().isoformat() > expires:
+        raise HTTPException(401, "token_expired")
     return row["vin"]
 
 

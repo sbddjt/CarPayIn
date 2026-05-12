@@ -1,10 +1,19 @@
 package com.example.carpayin.network
 
+import android.content.Context
 import android.util.Log
+import com.example.carpayin.data.ParkingStateManager
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+
+/**
+ * 토큰 만료 예외.
+ * 리프레시 토큰까지 만료되어 재로그인이 필요한 경우 발생.
+ * 호출부(Activity)에서 catch → 등록 화면으로 이동.
+ */
+class SessionExpiredException : Exception("세션이 만료되었습니다. 다시 로그인해 주세요.")
 
 object ApiManager {
     private const val TAG = "ApiManager"
@@ -31,6 +40,46 @@ object ApiManager {
     data class FeeResult(val lotName: String, val durationMinutes: Int, val amount: Int)
     data class PaymentResult(val transactionId: String, val approvalNumber: String)
     data class TokenResult(val accessToken: String, val refreshToken: String)
+
+    // ── 토큰 자동 갱신 래퍼 ──────────────────────────────────────────────────
+
+    /**
+     * 인증이 필요한 API 호출을 감싸는 래퍼.
+     *
+     * 동작:
+     *  1. ParkingStateManager에서 현재 액세스 토큰을 꺼내 block 실행
+     *  2. 백엔드가 HTTP 401 "token_expired" 반환 → 리프레시 토큰으로 재발급 후 block 재실행
+     *  3. 리프레시도 만료("refresh_expired") → 저장된 모든 토큰 삭제 + SessionExpiredException
+     *
+     * 사용 예:
+     *   ApiManager.withAutoRefresh(context) { token ->
+     *       ApiManager.queryFee(lotId, sessionId, token)
+     *   }
+     */
+    fun <T> withAutoRefresh(context: Context, block: (token: String) -> T): T {
+        val token = ParkingStateManager.getAccessToken(context)
+            ?: throw SessionExpiredException()
+        return try {
+            block(token)
+        } catch (e: RuntimeException) {
+            if (!e.message.orEmpty().contains("401")) throw e
+            // 401 → 리프레시 시도
+            Log.d(TAG, "액세스 토큰 만료 → 리프레시 시도")
+            val refreshToken = ParkingStateManager.getRefreshToken(context)
+                ?: throw SessionExpiredException()
+            try {
+                val newTokens = refreshToken(refreshToken)
+                ParkingStateManager.saveTokens(context, newTokens.accessToken, newTokens.refreshToken)
+                Log.d(TAG, "토큰 갱신 완료 → API 재시도")
+                block(newTokens.accessToken)
+            } catch (re: RuntimeException) {
+                // 리프레시도 401 → 세션 완전 만료
+                Log.w(TAG, "리프레시 토큰도 만료 → 재로그인 필요")
+                ParkingStateManager.clearSession(context)
+                throw SessionExpiredException()
+            }
+        }
+    }
 
     // ── 마이현대 OAuth 세션 폴링 ──────────────────────────────────────────────
 
