@@ -173,13 +173,12 @@ async def lpr_event(req: LprEventRequest):
             # 백엔드로 입차 이벤트 전송
             try:
                 async with httpx.AsyncClient() as client:
-                    res = await client.post(f"{BACKEND_URL}/webhook/entry", json={
+                    await client.post(f"{BACKEND_URL}/webhook/entry", json={
                         "event_id":  str(uuid.uuid4()),
                         "plate":     req.plate,
                         "lot_id":    req.lot_id,
                         "timestamp": int(datetime.now().timestamp() * 1000)
                     }, timeout=5.0)
-                print(f"[PMS] 백엔드 입차 웹훅 전송 완료: {res.status_code}")
             except Exception as e:
                 print(f"[PMS] 백엔드 웹훅 실패: {e}")
 

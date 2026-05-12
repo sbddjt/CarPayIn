@@ -350,12 +350,7 @@ async def process_card(
         hashlib.sha256
     ).hexdigest()
 
-    print(f"\n[Mock PG] ✅ 카드 등록 완료")
-    print(f"  order_id     : {order_id}")
-    print(f"  card_brand   : {card_brand}")
-    print(f"  last_four    : {last_four}")
-    print(f"  customer_key : {customer_key}")
-    print(f"  HMAC         : {sig[:20]}...")
+    print(f"[Mock PG] 카드 등록 완료: {card_brand} ****{last_four} order={order_id[:8]}…")
 
     # 백엔드 웹훅 전송 → customer_key DB 저장
     try:
@@ -367,9 +362,8 @@ async def process_card(
                 "last_four":    last_four,
                 "hmac":         sig,
             }, timeout=3.0)
-        print(f"  → 백엔드 웹훅 전송 완료")
     except Exception as e:
-        print(f"  → 백엔드 웹훅 실패 (무시): {e}")
+        print(f"[Mock PG] 백엔드 웹훅 실패 (무시): {e}")
 
     return JSONResponse({
         "success":      True,
@@ -417,12 +411,8 @@ async def charge(req: ChargeRequest):
         print(f"[Mock PG] 중복 요청 — 기존 결과 반환: {req.idempotency_key[:12]}…")
         return _processed[req.idempotency_key]
 
-    # ── VPN → OpenStack 카드 승인 서비스 통신 시뮬레이션 ─────────────────
-    print(f"\n[Mock PG] 카드 승인 요청 중...")
-    print(f"  customer_key : {req.customer_key[:12]}…")
-    print(f"  amount       : {req.amount:,}원")
-    print(f"  → [VPN 터널] OpenStack 카드 승인 서비스 전달 중...")
-    await asyncio.sleep(1.5)    # 카드사 네트워크 지연 모사 (실제 1~3초)
+    # VPN → OpenStack 카드 승인 서비스 통신 시뮬레이션 (1.5초 지연)
+    await asyncio.sleep(1.5)
 
     tx_id       = f"tx_{uuid.uuid4().hex[:16]}"
     approval_no = f"AP{int(_time.time())}"
@@ -438,5 +428,5 @@ async def charge(req: ChargeRequest):
     if req.idempotency_key:
         _processed[req.idempotency_key] = result
 
-    print(f"  ← [카드사 승인 완료] approval_no={approval_no}  tx_id={tx_id}")
+    print(f"[Mock PG] 결제 승인: {req.amount:,}원 approval={approval_no} tx={tx_id[:12]}…")
     return result

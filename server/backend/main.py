@@ -6,7 +6,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 import httpx
 
-from database import init_db, get_conn, print_schema
+from database import init_db, get_conn
 from models import (
     ConfirmVinRequest,
     PreNotifyRequest, EntryWebhookRequest,
@@ -41,7 +41,6 @@ HYUNDAI_VEHICLE_LIST_URL = f"{HYUNDAI_BASE_URL}/spa/vehicles"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    print_schema()   # ← 실제 DB 경로 + 컬럼 목록 출력
     mqtt_service.start()
     print("[백엔드] CarPayIn Backend Server 시작 (포트 8000)")
     yield
@@ -307,9 +306,6 @@ async def _exchange_hyundai_code(code: str, vin_hash: str = "", session_id: str 
             },
             timeout=10.0
         )
-        print(f"[현대 토큰] status={token_res.status_code}")
-        print(f"[현대 토큰] redirect_uri 사용값: {HYUNDAI_REDIRECT_URI}")
-        print(f"[현대 토큰] 응답 body: {token_res.text[:400]}")
         if token_res.status_code != 200:
             raise HTTPException(502, f"현대 토큰 발급 실패 (status={token_res.status_code}): {token_res.text}")
 
@@ -324,8 +320,6 @@ async def _exchange_hyundai_code(code: str, vin_hash: str = "", session_id: str 
             timeout=10.0
         )
         user_info = userinfo_res.json() if userinfo_res.status_code == 200 else {}
-        print(f"[현대 profile] 응답: {user_info}")
-
         user_id   = user_info.get("id", str(uuid.uuid4()))
         user_name = user_info.get("name", "")
 
@@ -649,4 +643,69 @@ def get_fee(session_id: str):
 async def process_payment(req: PaymentRequest):
     """
     앱 '예' 탭 → 결제 처리
-   
+    세션 → 차량 고객키 조회 → Mock PG /charge → PMS paid 통보 → MQTT 알림
+    """
+    with get_conn() as con:
+        session = con.execute(
+            "SELECT vin, plate, lot_id FROM sessions WHERE session_id=? AND status='active'",
+            (req.session_id,)
+        ).fetchone()
+    if not session:
+        raise HTTPException(404, "활성 세션 없음")
+
+    vin    = session["vin"]
+    plate  = session["plate"]
+    lot_id = session["lot_id"]
+
+    with get_conn() as con:
+        veh = con.execute(
+            "SELECT customer_key FROM vehicles WHERE vin=?", (vin,)
+        ).fetchone()
+    if not veh or not veh["customer_key"]:
+        raise HTTPException(400, "카드 미등록 — 카드 등록 후 이용하세요")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            charge_res = await client.post(f"{MOCK_PG_URL}/charge", json={
+                "amount":          req.amount,
+                "customer_key":    veh["customer_key"],
+                "idempotency_key": f"{req.session_id}_{req.amount}",
+            }, timeout=10.0)
+        charge_data = charge_res.json()
+        if not charge_data.get("success"):
+            raise HTTPException(502, "결제 승인 실패")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"PG 통신 오류: {e}")
+
+    tx_id       = charge_data["tx_id"]
+    approval_no = charge_data["approval_no"]
+
+    with get_conn() as con:
+        con.execute(
+            "UPDATE sessions SET status='paid' WHERE session_id=?",
+            (req.session_id,)
+        )
+
+    # PMS paid 통보 → 출구 차단기 개방 허가
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(f"{PARKING_PMS_URL}/paid", json={
+                "plate":  plate,
+                "lot_id": lot_id,
+                "tx_id":  tx_id,
+            }, timeout=3.0)
+    except Exception as e:
+        print(f"[결제완료] PMS paid 통보 실패 (무시): {e}")
+
+    mqtt_service.notify_payment(tx_id, approval_no, lot_id, req.amount, vin=vin)
+    print(f"[결제완료] plate={plate} amount={req.amount:,}원 tx={tx_id[:12]}… approval={approval_no}")
+
+    return {
+        "status":      "paid",
+        "tx_id":       tx_id,
+        "approval_no": approval_no,
+        "amount":      req.amount,
+        "session_id":  req.session_id,
+    }
