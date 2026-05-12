@@ -248,7 +248,8 @@ class CardRegistrationActivity : Activity() {
     private fun loadCardRegistrationPage(brand: BrandInfo) {
         Thread {
             try {
-                val result = ApiManager.fetchCardOrder(vin, accessToken)
+                // VIN은 서버가 토큰으로 내부 조회 — 앱에서 VIN 전송 없음
+                val result = ApiManager.fetchCardOrder(accessToken)
                 Log.d(TAG, "카드 주문 발급: order_id=${result.orderId} brand=${brand.name}")
 
                 // Mock PG URL에 card_brand 파라미터 추가 → PG가 해당 카드사 UI로 렌더링

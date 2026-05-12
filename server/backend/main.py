@@ -426,15 +426,35 @@ async def _exchange_hyundai_code(code: str, vin_hash: str = "", session_id: str 
 # 카드 등록 (Mock PG WebView 흐름)
 # ══════════════════════════════════════════════════════════════════════════
 
-@app.get("/card/order/{vin}", tags=["카드 등록"])
-def create_card_order(vin: str):
+def _vin_from_token(request: Request) -> str:
     """
-    앱 → Mock PG WebView URL 요청
+    Authorization 헤더의 Bearer 토큰 → 서버 내부에서 VIN 조회.
+    VIN을 URL/바디에 싣지 않아 외부 노출 차단.
+    """
+    auth = request.headers.get("Authorization", "")
+    token = auth.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(401, "Authorization 헤더 필요")
+    with get_conn() as con:
+        row = con.execute(
+            "SELECT vin FROM tokens WHERE access_token=?", (token,)
+        ).fetchone()
+    if not row:
+        raise HTTPException(401, "유효하지 않은 토큰")
+    return row["vin"]
+
+
+@app.get("/card/order", tags=["카드 등록"])
+def create_card_order(request: Request):
+    """
+    앱 → Mock PG WebView URL 요청.
+    VIN은 Authorization 헤더 토큰으로 서버 내부에서만 조회 (URL 노출 없음).
     order_id 생성 → DB 저장 → Mock PG 카드 입력 URL 반환
 
     실제 서비스: 카드사별 PG사 라우팅 (현대카드→현대페이, 신한→KG이니시스 등)
     데모: 단일 Mock PG 서버로 통합 처리
     """
+    vin = _vin_from_token(request)
     with get_conn() as con:
         row = con.execute("SELECT vin FROM vehicles WHERE vin=?", (vin,)).fetchone()
         if not row:
@@ -449,7 +469,7 @@ def create_card_order(vin: str):
         )
 
     pg_url = f"{MOCK_PG_URL}/card-register?order_id={order_id}"
-    print(f"[카드주문] vin={vin[:8]}… order_id={order_id[:8]}… pg_url={pg_url}")
+    print(f"[카드주문] vin=****{vin[-4:]} order_id={order_id[:8]}… pg_url={pg_url}")
     return {"order_id": order_id, "pg_url": pg_url}
 
 

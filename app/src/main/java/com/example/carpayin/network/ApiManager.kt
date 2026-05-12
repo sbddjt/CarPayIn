@@ -112,10 +112,11 @@ object ApiManager {
 
     /**
      * 백엔드에서 order_id를 발급받고 Mock PG WebView URL을 반환.
-     * CardRegistrationActivity에서 호출 → WebView에 pg_url 로드.
+     * VIN은 URL에 싣지 않고 Authorization 헤더 토큰으로만 전달.
+     * 서버가 토큰 → VIN 내부 조회 (VIN 외부 노출 차단).
      */
-    fun fetchCardOrder(vin: String, accessToken: String): CardOrderResult {
-        val response = getJson(URL("$BASE_URL/card/order/$vin"), accessToken)
+    fun fetchCardOrder(accessToken: String): CardOrderResult {
+        val response = getJson(URL("$BASE_URL/card/order"), accessToken)
         return CardOrderResult(
             orderId = response.getString("order_id"),
             pgUrl   = response.getString("pg_url")
