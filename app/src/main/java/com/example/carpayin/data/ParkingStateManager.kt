@@ -114,6 +114,15 @@ object ParkingStateManager {
         getPrefs(context).edit().putBoolean("registered", registered).apply()
     }
 
+    // ── OAuth(마이현대 로그인) 완료 여부 ─────────────────────────────────────
+    // 카드 등록 전에 앱을 껐다가 다시 켰을 때, QR 화면 건너뛰고 카드 등록만 뜨도록 사용
+    fun isOAuthComplete(context: Context): Boolean =
+        getPrefs(context).getBoolean("oauth_complete", false)
+
+    fun setOAuthComplete(context: Context, complete: Boolean) {
+        getPrefs(context).edit().putBoolean("oauth_complete", complete).apply()
+    }
+
     // ── 주차 상태 (입차 확정 알림 수신 시 저장) ──────────────────────────────
     /**
      * @param parked    주차 중 여부

@@ -18,7 +18,7 @@
         android:gravity="center"
         android:background="#0D1520" />
 
-    <!-- 로딩 표시 -->
+    <!-- 로딩 표시 (WebView 로드 중) -->
     <ProgressBar
         android:id="@+id/progressBarCard"
         style="?android:attr/progressBarStyleHorizontal"
@@ -28,10 +28,63 @@
         android:indeterminateTint="#00E87A"
         android:visibility="gone" />
 
-    <!-- Mock PG 카드 입력 WebView -->
+    <!-- ══════════════════════════════════════════
+         카드사 선택 화면 (처음 보여지는 화면)
+         ══════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layoutBrandSelect"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="visible">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="결제에 사용할 카드사를 선택해 주세요"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="최초 1회 등록 · 이후 주차 요금은 자동 결제됩니다"
+            android:textColor="#556677"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingBottom="28dp" />
+
+        <!-- 카드사 버튼 그리드 (코드에서 동적 추가) -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fadeScrollbars="true">
+
+            <LinearLayout
+                android:id="@+id/brandGrid"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="12dp" />
+
+        </ScrollView>
+
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════
+         Mock PG WebView (카드사 선택 후 표시)
+         ══════════════════════════════════════════ -->
     <WebView
         android:id="@+id/webViewCard"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone" />
 
 </LinearLayout>

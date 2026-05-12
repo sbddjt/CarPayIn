@@ -276,7 +276,20 @@ async function submitCard() {
 }
 
 // 초기화
-selectBrand(brands[0]);
+// 앱에서 카드사를 선택한 경우 (__PRESELECT_BRAND__) → 자동 선택 후 칩 숨기기
+const preselect = "__PRESELECT_BRAND__";
+if (preselect) {
+    const found = brands.find(b => b.name === preselect);
+    if (found) {
+        selectBrand(found);
+        // 앱 네이티브에서 이미 선택했으므로 카드사 선택 칩 숨김
+        document.getElementById('brandList').style.display = 'none';
+    } else {
+        selectBrand(brands[0]);
+    }
+} else {
+    selectBrand(brands[0]);
+}
 </script>
 </body>
 </html>"""
@@ -290,8 +303,15 @@ async def root():
 
 
 @app.get("/card-register", response_class=HTMLResponse)
-async def card_register_page(order_id: str = "TEST_ORDER"):
+async def card_register_page(order_id: str = "TEST_ORDER", card_brand: str = ""):
+    """
+    card_brand 파라미터가 있으면:
+      - 해당 카드사로 자동 선택 (JS selectBrand 호출)
+      - 카드사 선택 칩 숨김 (앱에서 이미 선택했으므로)
+    없으면: 기존 전체 UI (카드사 선택 포함)
+    """
     html = CARD_REGISTER_HTML.replace("__ORDER_ID__", order_id)
+    html = html.replace("__PRESELECT_BRAND__", card_brand)
     return HTMLResponse(content=html)
 
 

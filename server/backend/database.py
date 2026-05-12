@@ -33,6 +33,7 @@ def _migrate(con):
     기존 DB에 누락된 컬럼을 ALTER TABLE로 추가.
     SQLite는 IF NOT EXISTS를 지원하지 않으므로 PRAGMA로 현재 컬럼 목록을 확인 후 처리.
     """
+    # vehicles 테이블 마이그레이션
     existing = {row[1] for row in con.execute("PRAGMA table_info(vehicles)").fetchall()}
     for col_name, col_type, col_default in _VEHICLES_COLUMNS:
         if col_name not in existing:
@@ -40,6 +41,12 @@ def _migrate(con):
                 f"ALTER TABLE vehicles ADD COLUMN {col_name} {col_type} DEFAULT {col_default}"
             )
             print(f"[DB 마이그레이션] vehicles.{col_name} 컬럼 추가")
+
+    # login_sessions 테이블 마이그레이션 (vin_hash 추가)
+    ls_existing = {row[1] for row in con.execute("PRAGMA table_info(login_sessions)").fetchall()}
+    if "vin_hash" not in ls_existing:
+        con.execute("ALTER TABLE login_sessions ADD COLUMN vin_hash TEXT DEFAULT ''")
+        print("[DB 마이그레이션] login_sessions.vin_hash 컬럼 추가")
 
 def init_db():
     with get_conn() as con:
@@ -113,33 +120,4 @@ def init_db():
                 created_at TEXT
             );
 
-            -- 마이현대 QR 로그인 세션 (AAOS 폴링용)
-            CREATE TABLE IF NOT EXISTS login_sessions (
-                session_id    TEXT PRIMARY KEY,
-                vin           TEXT,
-                status        TEXT DEFAULT 'pending',
-                access_token  TEXT,
-                refresh_token TEXT,
-                plate_number  TEXT,
-                user_id       TEXT,
-                user_name     TEXT,
-                model_name    TEXT,
-                vin_list_json TEXT,
-                created_at    TEXT
-            );
-        """)
-        # 기존 DB 마이그레이션 (누락 컬럼 자동 추가)
-        _migrate(con)
-
-@contextmanager
-def get_conn():
-    con = sqlite3.connect(DB_PATH)
-    con.row_factory = sqlite3.Row
-    try:
-        yield con
-        con.commit()
-    except Exception:
-        con.rollback()
-        raise
-    finally:
-        con.close()
+            -- 마

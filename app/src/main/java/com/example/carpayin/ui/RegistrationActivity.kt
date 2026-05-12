@@ -18,6 +18,8 @@ import com.example.carpayin.network.ApiManager
 import com.example.carpayin.vehicle.VehicleDataManager
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import android.view.View
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -98,13 +100,25 @@ class RegistrationActivity : Activity() {
     // QR 코드 생성 및 표시
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * SHA-256(input) → 소문자 hex 문자열 (64자)
+     */
+    private fun sha256(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
     private fun renderQrCode() {
         // QR 코드는 실제 폰이 스캔하므로 PC의 로컬 IP(QR_BASE_URL)를 사용합니다.
         // 에뮬레이터 내부 API 호출(BASE_URL)과 다른 주소입니다.
+        //
+        // 보안: 평문 VIN 대신 SHA-256(VIN + session_id) 를 QR URL에 포함.
+        // 백엔드는 Hyundai vin_list의 각 VIN에 동일한 해시를 재계산해서 일치 여부를 검증.
+        val vinHash     = sha256(vin + loginSessionId)
         val authStartUrl =
-            "${ApiManager.QR_BASE_URL}/auth/hyundai/start?session_id=$loginSessionId&vin=$vin"
+            "${ApiManager.QR_BASE_URL}/auth/hyundai/start?session_id=$loginSessionId&vin_hash=$vinHash"
 
-        Log.d(TAG, "QR URL: $authStartUrl")
+        Log.d(TAG, "QR URL: $authStartUrl (vin_hash=${vinHash.take(12)}…)")
 
         tvPollingStatus.text = "스마트폰으로 QR을 스캔해 주세요"
         tvSubMessage.text    = "마이현대 계정으로 로그인하면\n차량이 자동으로 연동됩니다"
@@ -192,6 +206,8 @@ class RegistrationActivity : Activity() {
         ParkingStateManager.saveTokens(this, result.accessToken, result.refreshToken)
         ParkingStateManager.savePlateNumber(this, result.plateNumber)
         ParkingStateManager.saveHyundaiUserInfo(this, result.userId, result.userName, selectedModel)
+        // OAuth 완료 마킹 — 카드 등록 전에 앱을 꺼도 재진입 시 카드 등록 화면 바로 표시
+        ParkingStateManager.setOAuthComplete(this, true)
         // 카드 정보는 PG WebView 등록 완료 후 저장 (아직 미등록)
 
         // ── VIN 확정 알림 ──────────────────────────────────────────────────────
@@ -207,22 +223,23 @@ class RegistrationActivity : Activity() {
         }
 
         val displayName = result.userName.ifEmpty { "차량" }
-        Toast.makeText(this, "$displayName 님, 차량 인증 완료! 카드를 등록해 주세요.", Toast.LENGTH_SHORT).show()
 
-        // ── [수정됨] 자동 이동 삭제 및 '카드 등록 버튼' 노출 ───────────────────
-        // 인증이 완료되면 QR 코드를 숨기고, 기존 'QR 새로고침' 버튼을 '카드 등록하기' 버튼으로 재활용합니다.
-        ivQrCode.visibility = View.GONE
+        // ── UI: QR 숨기고 "카드 등록 화면으로 이동 중..." 상태 표시 ──────────
+        ivQrCode.visibility    = View.GONE
+        btnCancel.visibility   = View.GONE
+        btnRefreshQr.visibility = View.GONE
+        tvPollingStatus.text   = "✅ 마이현대 인증 완료!"
+        tvSubMessage.text      = "${displayName}님, 잠시 후 카드 등록 화면으로 이동합니다..."
 
-        btnRefreshQr.text = "결제 카드 등록하기"
-        btnRefreshQr.setOnClickListener {
-            // 사용자가 버튼을 직접 누르는 이 순간에만 CardRegistrationActivity를 띄웁니다!
+        // ── 1.2초 후 자동으로 CardRegistrationActivity 이동 ─────────────────
+        handler.postDelayed({
             val intent = Intent(this@RegistrationActivity, CardRegistrationActivity::class.java).apply {
                 putExtra(CardRegistrationActivity.EXTRA_VIN,          selectedVin)
                 putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, result.accessToken)
                 putExtra(CardRegistrationActivity.EXTRA_USER_NAME,    displayName)
             }
             startActivityForResult(intent, REQ_CARD_REG)
-        }
+        }, 1_200)
     }
 
     @Deprecated("Use registerForActivityResult")
@@ -230,8 +247,9 @@ class RegistrationActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_CARD_REG) {
             if (resultCode == RESULT_OK) {
-                // 카드 등록 완료 → 앱 등록 상태 확정
+                // 카드 등록 완료 → 앱 등록 상태 확정, OAuth 임시 플래그 제거
                 ParkingStateManager.setRegistered(this, true)
+                ParkingStateManager.setOAuthComplete(this, false)
                 setResult(RESULT_OK)
             } else {
                 // 카드 등록 취소 — 등록 미완료 상태로 복귀

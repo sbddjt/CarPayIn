@@ -1,0 +1,6 @@
+# Webots 컨트롤러 의존성
+# Webots 내장 Python 환경에서 실행되므로 별도 설치 불필요
+# (controller 모듈은 Webots가 자동 제공)
+
+paho-mqtt   # MQTT 차단기 제어 (barrier_controller.py)
+httpx       # HTTP 백엔드 통신 (vehicle_controller.py)

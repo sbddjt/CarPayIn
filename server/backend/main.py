@@ -64,17 +64,20 @@ def health():
 # ══════════════════════════════════════════════════════════════════════════
 
 @app.get("/auth/hyundai/start", tags=["마이현대 OAuth"])
-async def hyundai_start(session_id: str, vin: str = ""):
+async def hyundai_start(session_id: str, vin_hash: str = ""):
     """
     AAOS QR 스캔 → 스마트폰 브라우저가 이 URL을 엶
-    session_id + vin을 DB에 저장하고 현대 OAuth 페이지로 리디렉션
+    session_id + vin_hash(SHA-256(vin+session_id))를 DB에 저장하고
+    현대 OAuth 페이지로 리디렉션.
+    QR URL에 평문 VIN을 노출하지 않기 위해 해시값만 전달.
     """
     now = datetime.now().isoformat()
     with get_conn() as con:
         con.execute("""
-            INSERT OR REPLACE INTO login_sessions (session_id, vin, status, created_at)
-            VALUES (?, ?, 'pending', ?)
-        """, (session_id, vin, now))
+            INSERT OR REPLACE INTO login_sessions
+                (session_id, vin_hash, vin, status, created_at)
+            VALUES (?, ?, '', 'pending', ?)
+        """, (session_id, vin_hash, now))
 
     params = urlencode({
         "client_id":     HYUNDAI_CLIENT_ID,
@@ -83,7 +86,7 @@ async def hyundai_start(session_id: str, vin: str = ""):
         "scope":         "openid profile",
         "state":         session_id,
     })
-    print(f"[QR 시작] session={session_id[:8]}… vin={vin[:8] if vin else '없음'}…")
+    print(f"[QR 시작] session={session_id[:8]}… vin_hash={vin_hash[:12] if vin_hash else '없음'}…")
     return RedirectResponse(f"{HYUNDAI_AUTH_URL}?{params}")
 
 
@@ -151,22 +154,22 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
     print(f"[현대 OAuth] /auth/redirect — code={code[:8]}… session={state[:8] if state else '없음'}…")
 
     try:
-        vin_vhal = ""
+        vin_hash = ""
         if state:
             with get_conn() as con:
                 row = con.execute(
-                    "SELECT vin FROM login_sessions WHERE session_id=?", (state,)
+                    "SELECT vin_hash FROM login_sessions WHERE session_id=?", (state,)
                 ).fetchone()
                 if row:
-                    vin_vhal = row["vin"] or ""
+                    vin_hash = row["vin_hash"] or ""
 
-        result = await _exchange_hyundai_code(code, vin_vhal=vin_vhal)
+        result = await _exchange_hyundai_code(code, vin_hash=vin_hash, session_id=state or "")
 
         if state:
             model_name = ""
-            if result.get("vin_list"):
+            if result.get("vin_list") and result.get("matched_vin"):
                 matched = next(
-                    (v for v in result["vin_list"] if v["vin"] == vin_vhal),
+                    (v for v in result["vin_list"] if v["vin"] == result["matched_vin"]),
                     result["vin_list"][0]
                 )
                 model_name = matched.get("model_name", "")
@@ -175,10 +178,12 @@ async def hyundai_auth_redirect(code: str = None, state: str = None, error: str 
                 con.execute("""
                     UPDATE login_sessions SET
                         status='complete',
+                        vin=?,
                         access_token=?, refresh_token=?, plate_number=?,
                         user_id=?, user_name=?, model_name=?, vin_list_json=?
                     WHERE session_id=?
                 """, (
+                    result.get("matched_vin", ""),
                     result["access_token"],
                     result["refresh_token"],
                     result["plate_number"],
@@ -272,10 +277,15 @@ def refresh_token(request_body: dict):
 
 # ── 내부: 현대 OAuth code 교환 ────────────────────────────────────────────
 
-async def _exchange_hyundai_code(code: str, vin_vhal: str = "") -> dict:
+async def _exchange_hyundai_code(code: str, vin_hash: str = "", session_id: str = "") -> dict:
     """
     Authorization Code → 현대 access_token 교환 → 차량 정보 조회
-    → Mock 카드 정보 생성 → CarPayIn 토큰 발급 → DB 저장
+    → VIN 해시 검증 → CarPayIn 토큰 발급 → DB 저장
+
+    VIN 보안:
+      QR URL에 평문 VIN 대신 SHA-256(VIN + session_id) = vin_hash 를 실어 전송.
+      OAuth 완료 후 현대 차량 목록의 각 VIN에 대해 SHA-256(vin + session_id) 를 계산,
+      저장된 vin_hash 와 일치하는 VIN을 찾아 사용. (복호화 없이 재해시 검증)
     """
     async with httpx.AsyncClient() as client:
 
@@ -337,21 +347,26 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "") -> dict:
                         "year":       v.get("year", 0),
                     })
         except Exception as e:
-            print(f"[현대 API] 차량 리스트 조회 실패 (VHAL VIN fallback): {e}")
-            if vin_vhal:
-                vin_list = [{"vin": vin_vhal, "car_id": f"car_{vin_vhal[:8]}", "model_name": "Hyundai", "year": 0}]
+            print(f"[현대 API] 차량 리스트 조회 실패: {e}")
 
-        # 4단계: VHAL VIN 교차 검증
-        matched_vin = vin_vhal
-        if vin_vhal and vin_list:
-            matched = next((v for v in vin_list if v["vin"] == vin_vhal), None)
-            if not matched:
-                print(f"[현대 OAuth] ⚠ VHAL VIN이 계정 차량 목록에 없음 — 첫 번째 차량으로 대체")
-                matched_vin = vin_list[0]["vin"] if vin_list else vin_vhal
-            else:
-                matched_vin = matched["vin"]
+        # 4단계: VIN 해시 검증 (SHA-256(vin + session_id) 재계산으로 매칭)
+        matched_vin = ""
+        if vin_hash and session_id and vin_list:
+            for v in vin_list:
+                candidate_hash = hashlib.sha256(
+                    f"{v['vin']}{session_id}".encode()
+                ).hexdigest()
+                if candidate_hash == vin_hash:
+                    matched_vin = v["vin"]
+                    print(f"[VIN 검증] ✓ 해시 일치 → vin={v['vin'][:8]}…")
+                    break
+            if not matched_vin:
+                print(f"[VIN 검증] ⚠ vin_hash와 일치하는 VIN 없음 — 첫 번째 차량으로 대체")
+                matched_vin = vin_list[0]["vin"] if vin_list else ""
         elif vin_list:
+            # vin_hash 없이 진입한 경우 (QR URL에 vin_hash 미포함 — 하위 호환)
             matched_vin = vin_list[0]["vin"]
+            print(f"[VIN 검증] vin_hash 없음 — 첫 번째 차량 사용: {matched_vin[:8]}…")
 
         car_info = next((v for v in vin_list if v["vin"] == matched_vin), {})
 
@@ -395,7 +410,7 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "") -> dict:
                 VALUES (?, ?, ?, ?)
             """, (matched_vin, access_token, refresh_token, now))
 
-    print(f"[OAuth 완료] vin={matched_vin[:8]}… user={user_id[:8]}… plate={plate} — 카드 등록 대기 중")
+    print(f"[OAuth 완료] vin={matched_vin[:8] if matched_vin else '없음'}… user={user_id[:8]}… plate={plate} — 카드 등록 대기 중")
     return {
         "access_token":  access_token,
         "refresh_token": refresh_token,
@@ -403,6 +418,7 @@ async def _exchange_hyundai_code(code: str, vin_vhal: str = "") -> dict:
         "user_id":       user_id,
         "user_name":     user_name,
         "vin_list":      vin_list,
+        "matched_vin":   matched_vin,  # VIN 해시 검증으로 확정된 VIN
     }
 
 
@@ -613,114 +629,4 @@ def get_fee(session_id: str):
 async def process_payment(req: PaymentRequest):
     """
     앱 '예' 탭 → 결제 처리
-    idempotency_key 중복 방지 → Mock PG 호출 → 거래 저장 → PMS paid 전달
-    """
-    with get_conn() as con:
-        session = con.execute(
-            "SELECT lot_id, plate, vin FROM sessions WHERE session_id=? AND status='active'",
-            (req.session_id,)
-        ).fetchone()
-        if not session:
-            raise HTTPException(404, "세션 없음 또는 이미 완료")
-
-        lot_id = session["lot_id"]
-        plate  = session["plate"]
-        vin    = session["vin"]
-
-        vehicle = con.execute(
-            "SELECT customer_key FROM vehicles WHERE vin=?", (vin,)
-        ).fetchone()
-        customer_key = vehicle["customer_key"] if vehicle and vehicle["customer_key"] else "MOCK_CK"
-
-        raw      = f"{req.session_id}:{req.amount}:{int(time.time() // 10)}"
-        idem_key = hashlib.sha256(raw.encode()).hexdigest()
-
-        existing_tx = con.execute(
-            "SELECT tx_id, approval_no FROM transactions WHERE idempotency_key=?",
-            (idem_key,)
-        ).fetchone()
-        if existing_tx:
-            return {
-                "tx_id": existing_tx["tx_id"], "approval_no": existing_tx["approval_no"],
-                "amount": req.amount, "lot_id": lot_id
-            }
-
-    # Mock PG 호출 (실제: 빌링키 승인 API)
-    try:
-        async with httpx.AsyncClient() as client:
-            pg_res = await client.post(f"{MOCK_PG_URL}/charge", json={
-                "amount":          req.amount,
-                "customer_key":    customer_key,
-                "idempotency_key": idem_key
-            }, timeout=5.0)
-            pg_data     = pg_res.json()
-            tx_id       = pg_data.get("tx_id",       str(uuid.uuid4()))
-            approval_no = pg_data.get("approval_no", f"AP{int(time.time())}")
-    except Exception as e:
-        print(f"[결제] Mock PG 연결 실패, 자체 승인 처리: {e}")
-        tx_id       = str(uuid.uuid4())
-        approval_no = f"AP{int(time.time())}"
-
-    now = datetime.now().isoformat()
-    with get_conn() as con:
-        con.execute("""
-            INSERT INTO transactions
-                (tx_id, session_id, lot_id, amount, approval_no, idempotency_key, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (tx_id, req.session_id, lot_id, req.amount, approval_no, idem_key, now))
-        con.execute(
-            "UPDATE sessions SET status='completed', exit_time=?, amount=? WHERE session_id=?",
-            (now, req.amount, req.session_id)
-        )
-
-    try:
-        async with httpx.AsyncClient() as client:
-            await client.post(f"{PARKING_PMS_URL}/paid", json={
-                "plate": plate, "lot_id": lot_id, "tx_id": tx_id
-            }, timeout=3.0)
-        print(f"[결제] PMS paid 전달 완료: {plate}")
-    except Exception as e:
-        print(f"[결제] PMS paid 전달 실패: {e}")
-
-    mqtt_service.notify_payment(tx_id, approval_no, lot_id, req.amount, vin=vin)
-    print(f"[결제완료] plate={plate} amount={req.amount:,}원 approval={approval_no}")
-    return {"tx_id": tx_id, "approval_no": approval_no, "amount": req.amount, "lot_id": lot_id}
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# 디버그
-# ══════════════════════════════════════════════════════════════════════════
-
-@app.get("/sessions", tags=["디버그"])
-def list_sessions():
-    with get_conn() as con:
-        rows = con.execute(
-            "SELECT * FROM sessions ORDER BY entry_time DESC LIMIT 30"
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-@app.get("/vehicles", tags=["디버그"])
-def list_vehicles():
-    with get_conn() as con:
-        rows = con.execute("SELECT * FROM vehicles").fetchall()
-    return [dict(r) for r in rows]
-
-
-@app.get("/transactions", tags=["디버그"])
-def list_transactions():
-    with get_conn() as con:
-        rows = con.execute(
-            "SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 30"
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-@app.delete("/debug/reset", tags=["디버그"])
-def reset_all():
-    with get_conn() as con:
-        con.execute("DELETE FROM sessions")
-        con.execute("DELETE FROM transactions")
-        con.execute("DELETE FROM pre_notify")
-        con.execute("DELETE FROM login_sessions")
-    return {"status": "초기화 완료"}
+   

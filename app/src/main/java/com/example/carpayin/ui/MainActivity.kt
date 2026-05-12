@@ -133,6 +133,10 @@ class MainActivity : AppCompatActivity() {
         if (ParkingStateManager.isRegistered(this)) {
             showRegisteredState()
             startServicesAndListeners()
+        } else if (ParkingStateManager.isOAuthComplete(this)) {
+            // OAuth는 완료됐지만 카드 등록을 안 한 채로 앱을 껐다가 재진입
+            // QR 화면 없이 바로 카드 등록 화면으로
+            launchCardRegistrationOnly()
         } else {
             showUnregisteredState()
         }
@@ -146,6 +150,24 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRegister).setOnClickListener {
             startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
         }
+    }
+
+    /**
+     * OAuth 완료 후 카드 미등록 상태에서 재진입 시 호출.
+     * RegistrationActivity(QR) 없이 CardRegistrationActivity 직접 시작.
+     */
+    private fun launchCardRegistrationOnly() {
+        layoutUnregistered.visibility = View.GONE
+        layoutRegistered.visibility   = View.GONE
+        val intent = Intent(this, CardRegistrationActivity::class.java).apply {
+            putExtra(CardRegistrationActivity.EXTRA_VIN,
+                VehicleDataManager.readVin(this@MainActivity))
+            putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN,
+                ParkingStateManager.getAccessToken(this@MainActivity) ?: "")
+            putExtra(CardRegistrationActivity.EXTRA_USER_NAME,
+                ParkingStateManager.getHyundaiUserName(this@MainActivity))
+        }
+        startActivityForResult(intent, 101)
     }
 
     private fun showRegisteredState() {
@@ -766,16 +788,27 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in API level 29")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 100) {
-            when (resultCode) {
+        when (requestCode) {
+            100 -> when (resultCode) {
+                // RegistrationActivity (QR + 카드 등록) 완료
                 RESULT_OK -> {
-                    // 마이현대 연동 완료 → 메인 화면 진입
+                    showRegisteredState()
+                    startServicesAndListeners()
+                }
+                RESULT_CANCELED -> showUnregisteredState()
+            }
+            101 -> when (resultCode) {
+                // launchCardRegistrationOnly() — 재진입 카드 등록 완료
+                RESULT_OK -> {
+                    ParkingStateManager.setRegistered(this, true)
+                    ParkingStateManager.setOAuthComplete(this, false)
                     showRegisteredState()
                     startServicesAndListeners()
                 }
                 RESULT_CANCELED -> {
-                    // QR 화면에서 취소 → 버튼 화면으로 돌아가기
+                    // 카드 등록 취소 → OAuth 완료 상태 유지, 버튼 화면
                     showUnregisteredState()
+                    // 다음 재진입 시 다시 카드 등록 화면 뜨게 OAuth 플래그는 그대로
                 }
             }
         }
