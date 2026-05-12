@@ -2,8 +2,8 @@
 Mock PG (Payment Gateway) Server
 FastAPI 기반 카드 등록 시뮬레이터
 
-실행: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-AAOS 에뮬레이터 접근 URL: http://10.0.2.2:8000/card-register?order_id=TEST
+실행: uvicorn main:app --host 0.0.0.0 --port 9000 --reload
+AAOS 에뮬레이터 접근 URL: http://10.0.2.2:9000/card-register?order_id=TEST
 """
 
 from fastapi import FastAPI, Form

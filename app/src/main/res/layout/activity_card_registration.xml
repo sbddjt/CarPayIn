@@ -6,19 +6,54 @@
     android:orientation="vertical"
     android:background="#080C10">
 
-    <!-- 상단 안내 -->
-    <TextView
-        android:id="@+id/tvCardStatus"
+    <!-- ── 상단 헤더 (항상 표시) ── -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:padding="20dp"
-        android:text="결제 카드를 등록해 주세요"
-        android:textColor="#AAAAAA"
-        android:textSize="14sp"
-        android:gravity="center"
-        android:background="#0D1520" />
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#0D1219">
 
-    <!-- 로딩 표시 (WebView 로드 중) -->
+        <!-- ← 처음으로 버튼: 명시적 배경 + 최소 터치 영역 확보 -->
+        <TextView
+            android:id="@+id/btnCancelCard"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:text="← 처음으로"
+            android:textColor="#5588AA"
+            android:textSize="13sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="12dp"
+            android:background="#0D1219"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <!-- 중간 타이틀 (남은 공간 채움) -->
+        <TextView
+            android:id="@+id/tvCardStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="카드 등록"
+            android:textColor="#CCDDEE"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:gravity="center"/>
+
+        <!-- 단계 표시 -->
+        <TextView
+            android:id="@+id/tvStepIndicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1 / 4"
+            android:textColor="#334455"
+            android:textSize="12sp"
+            android:paddingEnd="16dp"/>
+
+    </LinearLayout>
+
+    <!-- 진행 바 (WebView 로드 중) -->
     <ProgressBar
         android:id="@+id/progressBarCard"
         style="?android:attr/progressBarStyleHorizontal"
@@ -29,7 +64,242 @@
         android:visibility="gone" />
 
     <!-- ══════════════════════════════════════════
-         카드사 선택 화면 (처음 보여지는 화면)
+         STEP 0 — 개인정보 수집·이용 동의
+         ══════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layoutConsent"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="28dp"
+        android:visibility="visible">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="개인정보 수집·이용 동의"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="주차 자동 결제 서비스 이용을 위해\n아래 항목에 동의해 주세요"
+            android:textColor="#556677"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:layout_marginBottom="28dp"/>
+
+        <!-- 동의 항목 카드 -->
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fadeScrollbars="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- 필수 항목 1 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="#0D1520"
+                    android:padding="20dp"
+                    android:layout_marginBottom="10dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="[필수] 개인정보 수집·이용 동의"
+                        android:textColor="#00E87A"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="• 수집 항목: 차량번호, 결제 수단 정보(카드 빌링키)\n• 수집 목적: 주차장 자동 출입 인식 및 결제 처리\n• 보유 기간: 서비스 탈퇴 시까지"
+                        android:textColor="#778899"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="4dp"/>
+                </LinearLayout>
+
+                <!-- 필수 항목 2 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="#0D1520"
+                    android:padding="20dp"
+                    android:layout_marginBottom="10dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="[필수] 제3자 제공 동의"
+                        android:textColor="#00E87A"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="• 제공 대상: 제휴 주차장 운영사, PG사\n• 제공 항목: 차량번호, 결제 승인 정보\n• 제공 목적: 입·출차 확인 및 요금 정산"
+                        android:textColor="#778899"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="4dp"/>
+                </LinearLayout>
+
+                <!-- 선택 항목 -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="#0D1219"
+                    android:padding="20dp"
+                    android:layout_marginBottom="16dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="[선택] 마케팅 활용 동의"
+                        android:textColor="#445566"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="10dp"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="• 제휴 주차장 할인·이벤트 안내\n• 동의하지 않아도 서비스 이용 가능"
+                        android:textColor="#445566"
+                        android:textSize="12sp"
+                        android:lineSpacingExtra="4dp"/>
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- 전체 동의 버튼 -->
+        <Button
+            android:id="@+id/btnConsentAgree"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="#00E87A"
+            android:text="필수 항목 모두 동의하고 계속"
+            android:textColor="#000000"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp"/>
+
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════
+         STEP 1 — 번호판 입력
+         ══════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layoutPlateInput"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="차량 번호판을 입력해 주세요"
+            android:textColor="#FFFFFF"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="주차장 입차 시 번호판 인식에 사용됩니다"
+            android:textColor="#445566"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:layout_marginBottom="40dp"/>
+
+        <!-- 번호판 입력 필드 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#0D1520"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="번호판"
+                android:textColor="#556677"
+                android:textSize="11sp"
+                android:letterSpacing="0.1"
+                android:layout_marginBottom="10dp"/>
+
+            <EditText
+                android:id="@+id/etPlateNumber"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:background="#111820"
+                android:hint="예) 12가3456  또는  123가4567"
+                android:hintTextColor="#223344"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:letterSpacing="0.1"
+                android:inputType="text"
+                android:maxLines="1"
+                android:imeOptions="actionDone"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"/>
+
+        </LinearLayout>
+
+        <!-- 안내 문구 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔒 번호판 정보는 암호화되어 안전하게 보관됩니다"
+            android:textColor="#1A3A28"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="32dp"/>
+
+        <!-- 다음 버튼 -->
+        <Button
+            android:id="@+id/btnPlateNext"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="#00E87A"
+            android:text="다음  →"
+            android:textColor="#000000"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════
+         STEP 2 — 카드사 선택
          ══════════════════════════════════════════ -->
     <LinearLayout
         android:id="@+id/layoutBrandSelect"
@@ -38,7 +308,7 @@
         android:layout_weight="1"
         android:orientation="vertical"
         android:padding="28dp"
-        android:visibility="visible">
+        android:visibility="gone">
 
         <TextView
             android:layout_width="match_parent"
@@ -78,7 +348,7 @@
     </LinearLayout>
 
     <!-- ══════════════════════════════════════════
-         Mock PG WebView (카드사 선택 후 표시)
+         STEP 3 — Mock PG WebView (카드 정보 입력)
          ══════════════════════════════════════════ -->
     <WebView
         android:id="@+id/webViewCard"

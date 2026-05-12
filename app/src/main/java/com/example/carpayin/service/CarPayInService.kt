@@ -94,9 +94,15 @@ class CarPayInService : Service() {
         isRunning = true
 
         val notif = buildServiceNotif("CarPayIn 주차 감시 중")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(NOTIF_SERVICE, notif)
+            }
+        } catch (e: SecurityException) {
+            // 위치 권한 미승인 시 (에뮬레이터 첫 실행 등) → 위치 타입 없이 포그라운드 유지
+            Log.w(TAG, "위치 권한 없음 → 기본 포그라운드로 시작: ${e.message}")
             startForeground(NOTIF_SERVICE, notif)
         }
         Log.d(TAG, "서비스 시작")

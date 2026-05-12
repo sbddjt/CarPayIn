@@ -2,6 +2,7 @@ package com.example.carpayin.ui
 
 import com.example.carpayin.R
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -17,6 +18,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import com.example.carpayin.data.ParkingStateManager
 import com.example.carpayin.data.TransactionStore
 import com.example.carpayin.network.ApiManager
@@ -51,6 +54,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var layoutRegistered: ScrollView
     private lateinit var tvHeaderTitle: RelativeLayout
 
+    // OAuth 완료 · 카드 미등록 화면
+    private lateinit var layoutOAuthPending: LinearLayout
+    private lateinit var tvOAuthPendingUser: TextView
+
     // 추가: 초기화 버튼 및 카드 뷰 UI
     private lateinit var btnResetApp: Button
     private lateinit var mainCardBody: LinearLayout
@@ -84,6 +91,7 @@ class MainActivity : AppCompatActivity() {
     private val DEV_TAP_TARGET = 5
     private val DEV_TAP_WINDOW_MS = 3000L
     private val DEV_PIN = "1234"
+    private val REQ_LOCATION_PERM = 300
 
     // ── 카드 테마 데이터 클래스 ───────────────────────────────────────────────
     data class BrandTheme(val shortName: String, val bgColor: Int, val brandTextColor: Int, val network: String)
@@ -104,6 +112,9 @@ class MainActivity : AppCompatActivity() {
         layoutUnregistered = findViewById(R.id.layoutUnregistered)
         layoutRegistered   = findViewById(R.id.layoutRegistered)
         tvHeaderTitle      = findViewById(R.id.tvHeaderTitle)
+
+        layoutOAuthPending  = findViewById(R.id.layoutOAuthPending)
+        tvOAuthPendingUser  = findViewById(R.id.tvOAuthPendingUser)
 
         btnResetApp        = findViewById(R.id.btnResetApp)
         mainCardBody       = findViewById(R.id.mainCardBody)
@@ -136,20 +147,51 @@ class MainActivity : AppCompatActivity() {
             startServicesAndListeners()
         } else if (ParkingStateManager.isOAuthComplete(this)) {
             // OAuth는 완료됐지만 카드 등록을 안 한 채로 앱을 껐다가 재진입
-            // QR 화면 없이 바로 카드 등록 화면으로
-            launchCardRegistrationOnly()
+            // 중간 확인 화면 표시 → 사용자가 직접 "카드 등록하기" 터치
+            showOAuthPendingState()
         } else {
             showUnregisteredState()
         }
     }
 
     private fun showUnregisteredState() {
-        layoutUnregistered.visibility = View.VISIBLE
-        layoutRegistered.visibility   = View.GONE
-        btnResetApp.visibility        = View.GONE
+        layoutUnregistered.visibility  = View.VISIBLE
+        layoutRegistered.visibility    = View.GONE
+        layoutOAuthPending.visibility  = View.GONE
+        btnResetApp.visibility         = View.GONE
 
         findViewById<Button>(R.id.btnRegister).setOnClickListener {
             startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
+        }
+    }
+
+    /**
+     * 마이현대 OAuth 완료 후 카드 등록을 건너뛴(취소한) 상태.
+     * 이름과 차량 모델을 표시하고 카드 등록을 유도합니다.
+     */
+    private fun showOAuthPendingState() {
+        layoutUnregistered.visibility  = View.GONE
+        layoutRegistered.visibility    = View.GONE
+        layoutOAuthPending.visibility  = View.VISIBLE
+        btnResetApp.visibility         = View.GONE
+
+        val userName  = ParkingStateManager.getHyundaiUserName(this)
+        val modelName = ParkingStateManager.getHyundaiModelName(this)
+        tvOAuthPendingUser.text = when {
+            userName.isNotEmpty() && modelName.isNotEmpty() -> "$userName 님 · $modelName"
+            userName.isNotEmpty() -> "$userName 님"
+            modelName.isNotEmpty() -> modelName
+            else -> ""
+        }
+
+        findViewById<Button>(R.id.btnOAuthPendingRegisterCard).setOnClickListener {
+            launchCardRegistrationOnly()
+        }
+
+        // "나중에 등록" → 완전 초기 화면으로 되돌림 (OAuth 플래그 유지)
+        // 재진입 시 다시 카드 등록 화면이 뜨도록 oauthComplete 플래그는 유지
+        findViewById<Button>(R.id.btnOAuthPendingCancel).setOnClickListener {
+            showUnregisteredState()
         }
     }
 
@@ -158,8 +200,9 @@ class MainActivity : AppCompatActivity() {
      * RegistrationActivity(QR) 없이 CardRegistrationActivity 직접 시작.
      */
     private fun launchCardRegistrationOnly() {
-        layoutUnregistered.visibility = View.GONE
-        layoutRegistered.visibility   = View.GONE
+        layoutUnregistered.visibility  = View.GONE
+        layoutRegistered.visibility    = View.GONE
+        layoutOAuthPending.visibility  = View.GONE
         val intent = Intent(this, CardRegistrationActivity::class.java).apply {
             putExtra(CardRegistrationActivity.EXTRA_VIN,
                 VehicleDataManager.readVin(this@MainActivity))
@@ -172,9 +215,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRegisteredState() {
-        layoutUnregistered.visibility = View.GONE
-        layoutRegistered.visibility   = View.VISIBLE
-        btnResetApp.visibility        = View.VISIBLE
+        layoutUnregistered.visibility  = View.GONE
+        layoutRegistered.visibility    = View.VISIBLE
+        layoutOAuthPending.visibility  = View.GONE
+        btnResetApp.visibility         = View.VISIBLE
 
         // ── 차량 정보 ─────────────────────────────────────────────────────────
         tvVinShort.text    = maskVin(vin)
@@ -199,6 +243,18 @@ class MainActivity : AppCompatActivity() {
         mainCardBrand.setTextColor(theme.brandTextColor)
         mainCardNetwork.text = theme.network
         mainCardNumber.text  = "•••• •••• •••• $lastFour"
+
+        // 카드 등록 (카드만 새로 등록, OAuth 재인증 없음)
+        findViewById<Button>(R.id.btnRegisterCard).setOnClickListener {
+            AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+                .setTitle("카드 등록")
+                .setMessage("새 카드를 등록합니다.\n번호판 확인 후 카드 정보를 입력해 주세요.")
+                .setPositiveButton("등록하기") { _, _ ->
+                    launchCardRegistrationOnly()
+                }
+                .setNegativeButton("취소", null)
+                .show()
+        }
 
         // 계정 재연동 (마이현대 재로그인)
         findViewById<Button>(R.id.btnChangeCard).setOnClickListener {
@@ -490,8 +546,29 @@ class MainActivity : AppCompatActivity() {
     /**
      * CarPayInService를 시작하고 UI 업데이트 콜백을 등록합니다.
      * MQTT / Geofence / 요금 polling / 토큰 갱신은 서비스가 담당합니다.
+     *
+     * 위치 권한이 없으면 먼저 요청 → 권한 응답과 무관하게 서비스는 시작
+     * (서비스 내부에서 SecurityException 방어 처리됨)
      */
     private fun startServicesAndListeners() {
+        // 위치 권한 확인 및 요청 (미승인 시 시스템 팝업 표시)
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!fineGranted && !coarseGranted) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                REQ_LOCATION_PERM
+            )
+        }
+
         CarPayInService.start(this)
         registerServiceCallbacks()
 
@@ -799,10 +876,20 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         when (requestCode) {
             100 -> when (resultCode) {
-                // RegistrationActivity (QR + 카드 등록) 완료
+                // RegistrationActivity (OAuth QR) 완료
                 RESULT_OK -> {
-                    showRegisteredState()
-                    startServicesAndListeners()
+                    when {
+                        // 카드까지 등록된 경우 (계정 재연동 후 카드 재등록 완료)
+                        ParkingStateManager.isRegistered(this) -> {
+                            showRegisteredState()
+                            startServicesAndListeners()
+                        }
+                        // OAuth만 완료 → 중간 확인 화면 (사용자가 직접 카드 등록 버튼 터치)
+                        ParkingStateManager.isOAuthComplete(this) -> {
+                            showOAuthPendingState()
+                        }
+                        else -> showUnregisteredState()
+                    }
                 }
                 RESULT_CANCELED -> showUnregisteredState()
             }
@@ -815,9 +902,9 @@ class MainActivity : AppCompatActivity() {
                     startServicesAndListeners()
                 }
                 RESULT_CANCELED -> {
-                    // 카드 등록 취소 → OAuth 완료 상태 유지, 버튼 화면
-                    showUnregisteredState()
-                    // 다음 재진입 시 다시 카드 등록 화면 뜨게 OAuth 플래그는 그대로
+                    // 카드 등록 취소 → OAuth 완료 상태는 유지, 중간 상태 화면 표시
+                    // 다음 재진입 시 다시 카드 등록 화면 뜨게 oauthComplete 플래그는 그대로 유지
+                    showOAuthPendingState()
                 }
             }
         }

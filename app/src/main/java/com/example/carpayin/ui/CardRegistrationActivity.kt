@@ -10,10 +10,13 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -24,29 +27,46 @@ import com.example.carpayin.network.ApiManager
 import java.net.URLEncoder
 
 /**
- * Mock PG 카드 등록 WebView 화면
+ * 카드 등록 흐름 — 3단계
  *
- * 흐름:
- *  1. 카드사 선택 화면 (네이티브 UI)
- *  2. 선택한 카드사 → 백엔드 GET /card/order/{vin} → order_id + pg_url 수신
- *  3. pg_url에 card_brand 파라미터 추가 → WebView 로드
- *     (Mock PG가 해당 카드사 스타일로 페이지를 렌더링)
- *  4. 사용자가 카드번호 / 유효기간 / CVC 입력 후 "등록하기"
- *  5. Mock PG → 백엔드 POST /webhook/card (HMAC 검증 + customer_key 저장)
- *  6. Mock PG 페이지 JS → window.Android.onRegistrationComplete() 호출
- *  7. 앱이 카드 정보를 EncryptedSharedPreferences에 저장 → 완료
+ *  STEP 1. 번호판 입력 (layoutPlateInput)
+ *          → 입력 확인 후 ParkingStateManager에 저장
+ *
+ *  STEP 2. 카드사 선택 (layoutBrandSelect)
+ *          → 카드사를 누르면 백엔드 GET /card/order → order_id + pg_url 수신
+ *
+ *  STEP 3. Mock PG WebView (카드 번호 입력)
+ *          → 등록 완료 시 JS → window.Android.onRegistrationComplete()
+ *          → EncryptedSharedPreferences에 카드 정보 저장 후 RESULT_OK
+ *
+ *  어느 단계에서든 "← 처음으로" 버튼 → RESULT_CANCELED → 초기화면으로
  */
 class CardRegistrationActivity : Activity() {
 
     private val TAG = "CardRegActivity"
     private val handler = Handler(Looper.getMainLooper())
 
+    // ── Views ────────────────────────────────────────────────────────────────
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var tvStatus: TextView
+    private lateinit var tvStepIndicator: TextView
+    private lateinit var btnCancel: TextView  // XML에서 TextView로 선언됨 (AAOS 터치 호환)
+
+    // Step 0
+    private lateinit var layoutConsent: LinearLayout
+    private lateinit var btnConsentAgree: Button
+
+    // Step 1
+    private lateinit var layoutPlateInput: LinearLayout
+    private lateinit var etPlateNumber: EditText
+    private lateinit var btnPlateNext: Button
+
+    // Step 2
     private lateinit var layoutBrandSelect: LinearLayout
     private lateinit var brandGrid: LinearLayout
 
+    // ── Extras ────────────────────────────────────────────────────────────────
     private lateinit var vin: String
     private lateinit var accessToken: String
     private lateinit var userName: String
@@ -76,35 +96,119 @@ class CardRegistrationActivity : Activity() {
         BrandInfo("하나카드", "HANA",    0xFF003020.toInt(), 0xFFFFFFFF.toInt(), "VISA"),
     )
 
+    // ── 현재 단계 ─────────────────────────────────────────────────────────────
+    private enum class Step { CONSENT, PLATE, BRAND, WEBVIEW }
+    private var currentStep = Step.CONSENT
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // onCreate
+    // ─────────────────────────────────────────────────────────────────────────
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_card_registration)
 
+        // Views
         webView           = findViewById(R.id.webViewCard)
         progressBar       = findViewById(R.id.progressBarCard)
         tvStatus          = findViewById(R.id.tvCardStatus)
+        tvStepIndicator   = findViewById(R.id.tvStepIndicator)
+        btnCancel         = findViewById(R.id.btnCancelCard)
+        layoutConsent     = findViewById(R.id.layoutConsent)
+        btnConsentAgree   = findViewById(R.id.btnConsentAgree)
+        layoutPlateInput  = findViewById(R.id.layoutPlateInput)
+        etPlateNumber     = findViewById(R.id.etPlateNumber)
+        btnPlateNext      = findViewById(R.id.btnPlateNext)
         layoutBrandSelect = findViewById(R.id.layoutBrandSelect)
         brandGrid         = findViewById(R.id.brandGrid)
 
+        // Extras
         vin         = intent.getStringExtra(EXTRA_VIN)          ?: ""
         accessToken = intent.getStringExtra(EXTRA_ACCESS_TOKEN) ?: ""
         userName    = intent.getStringExtra(EXTRA_USER_NAME)    ?: "고객"
 
-        tvStatus.text = "${userName}님, 결제 카드사를 선택해 주세요"
+        // 이미 저장된 번호판 있으면 미리 채워줌
+        val savedPlate = ParkingStateManager.getPlateNumber(this)
+        if (!savedPlate.isNullOrEmpty()) {
+            etPlateNumber.setText(savedPlate)
+        }
 
+        // ── 처음으로 버튼 (어느 단계에서든) ─────────────────────────────────
+        btnCancel.setOnClickListener {
+            setResult(RESULT_CANCELED)
+            finish()
+        }
+
+        // ── Step 0: 동의 버튼 ────────────────────────────────────────────────
+        btnConsentAgree.setOnClickListener {
+            goToStep(Step.PLATE)
+        }
+
+        // ── Step 1: 번호판 "다음" 버튼 ───────────────────────────────────────
+        btnPlateNext.setOnClickListener {
+            val plate = etPlateNumber.text.toString().trim()
+            if (plate.length < 4) {
+                Toast.makeText(this, "번호판을 올바르게 입력해 주세요", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            hideKeyboard()
+            ParkingStateManager.savePlateNumber(this, plate)
+            Log.d(TAG, "번호판 저장: $plate")
+            goToStep(Step.BRAND)
+        }
+
+        // ── WebView + 카드사 그리드 초기화 ───────────────────────────────────
         setupWebView()
         buildBrandGrid()
+
+        // Step 0(동의)부터 시작
+        goToStep(Step.CONSENT)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 카드사 선택 그리드 (2열 구성)
+    // 단계 전환
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private fun goToStep(step: Step) {
+        currentStep = step
+        layoutConsent.visibility     = View.GONE
+        layoutPlateInput.visibility  = View.GONE
+        layoutBrandSelect.visibility = View.GONE
+        webView.visibility           = View.GONE
+        progressBar.visibility       = View.GONE
+
+        when (step) {
+            Step.CONSENT -> {
+                layoutConsent.visibility = View.VISIBLE
+                tvStatus.text        = "개인정보 동의"
+                tvStepIndicator.text = "1 / 4"
+            }
+            Step.PLATE -> {
+                layoutPlateInput.visibility = View.VISIBLE
+                tvStatus.text        = "STEP 1 · 번호판 입력"
+                tvStepIndicator.text = "2 / 4"
+            }
+            Step.BRAND -> {
+                layoutBrandSelect.visibility = View.VISIBLE
+                tvStatus.text        = "STEP 2 · 카드사 선택"
+                tvStepIndicator.text = "3 / 4"
+            }
+            Step.WEBVIEW -> {
+                // WebView는 onPageFinished에서 VISIBLE 처리
+                progressBar.visibility = View.VISIBLE
+                tvStatus.text        = "STEP 3 · 카드 정보 입력"
+                tvStepIndicator.text = "4 / 4"
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Step 2: 카드사 선택 그리드
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun buildBrandGrid() {
         brandGrid.removeAllViews()
-
-        // 2열씩 행으로 구성
         val rows = BRANDS.chunked(2)
         rows.forEach { rowBrands ->
             val row = LinearLayout(this).apply {
@@ -114,10 +218,7 @@ class CardRegistrationActivity : Activity() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).also { it.setMargins(0, 0, 0, dp(12)) }
             }
-            rowBrands.forEach { brand ->
-                row.addView(makeBrandCard(brand))
-            }
-            // 홀수 개일 때 마지막 행 빈 칸 채우기
+            rowBrands.forEach { brand -> row.addView(makeBrandCard(brand)) }
             if (rowBrands.size == 1) {
                 row.addView(View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(0,
@@ -132,45 +233,33 @@ class CardRegistrationActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity     = Gravity.BOTTOM or Gravity.START
-            setBackgroundColor(brand.bgColor)
-
-            val r = dp(14).toFloat()
-            // API 21+ 에서 outlineProvider로 라운드 처리
-            background = android.graphics.drawable.GradientDrawable().apply {
+            background  = android.graphics.drawable.GradientDrawable().apply {
                 setColor(brand.bgColor)
-                cornerRadius = r
+                cornerRadius = dp(14).toFloat()
             }
-
-            layoutParams = LinearLayout.LayoutParams(0,
-                dp(100), 1f).also {
-                it.setMargins(if (indexOfChild(this) == 0) 0 else dp(10), 0, 0, 0)
-            }
+            layoutParams = LinearLayout.LayoutParams(0, dp(100), 1f)
+                .also { it.setMargins(0, 0, 0, 0) }
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }
 
-        // 카드사 짧은 이름 (상단)
         val tvShort = TextView(this).apply {
-            text      = brand.shortName
+            text = brand.shortName
             setTextColor(brand.textColor)
-            textSize  = 9f
+            textSize = 9f
             letterSpacing = 0.12f
         }
-
-        // 카드사 풀 이름 (하단)
         val tvName = TextView(this).apply {
-            text      = brand.name
+            text = brand.name
             setTextColor(0xFFFFFFFF.toInt())
-            textSize  = 15f
+            textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.topMargin = dp(4) }
         }
-
-        // 네트워크 라벨 (우하단)
         val tvNet = TextView(this).apply {
-            text     = brand.network
+            text = brand.network
             setTextColor(Color.parseColor("#80FFFFFF"))
             textSize = 9f
         }
@@ -178,10 +267,8 @@ class CardRegistrationActivity : Activity() {
         card.addView(tvShort)
         card.addView(tvName)
         card.addView(tvNet)
-
         card.setOnClickListener { onBrandSelected(brand) }
 
-        // 여백을 위한 wrapper
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0,
@@ -195,23 +282,22 @@ class CardRegistrationActivity : Activity() {
     }
 
     private fun onBrandSelected(brand: BrandInfo) {
-        tvStatus.text = "${brand.name} 카드 등록 화면을 불러오는 중..."
-        layoutBrandSelect.visibility = View.GONE
-        progressBar.visibility       = View.VISIBLE
+        tvStatus.text = "${brand.name} 결제창 불러오는 중..."
+        goToStep(Step.WEBVIEW)
         loadCardRegistrationPage(brand)
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // WebView 설정
+    // Step 3: WebView 설정
     // ─────────────────────────────────────────────────────────────────────────
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
         webView.settings.apply {
-            javaScriptEnabled   = true
-            domStorageEnabled   = true
+            javaScriptEnabled    = true
+            domStorageEnabled    = true
             loadWithOverviewMode = true
-            useWideViewPort     = true
+            useWideViewPort      = true
         }
 
         webView.addJavascriptInterface(PgJsInterface(), "Android")
@@ -230,11 +316,8 @@ class CardRegistrationActivity : Activity() {
                 Log.e(TAG, "WebView 오류: $errorCode $description")
                 handler.post {
                     Toast.makeText(this@CardRegistrationActivity,
-                        "페이지 로딩 실패. 네트워크를 확인해 주세요.", Toast.LENGTH_LONG).show()
-                    // 브랜드 선택 화면으로 복귀
-                    layoutBrandSelect.visibility = View.VISIBLE
-                    webView.visibility           = View.GONE
-                    tvStatus.text = "${userName}님, 결제 카드사를 선택해 주세요"
+                        "페이지 로딩 실패. 서버를 확인해 주세요.", Toast.LENGTH_LONG).show()
+                    goToStep(Step.BRAND)
                 }
             }
         }
@@ -242,33 +325,31 @@ class CardRegistrationActivity : Activity() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 백엔드 order_id 발급 → 선택한 카드사 파라미터 포함 Mock PG WebView 로드
+    // 백엔드 order_id 발급 → Mock PG WebView 로드
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun loadCardRegistrationPage(brand: BrandInfo) {
         Thread {
             try {
-                // VIN은 서버가 토큰으로 내부 조회 — 앱에서 VIN 전송 없음
                 val result = ApiManager.fetchCardOrder(accessToken)
                 Log.d(TAG, "카드 주문 발급: order_id=${result.orderId} brand=${brand.name}")
 
-                // Mock PG URL에 card_brand 파라미터 추가 → PG가 해당 카드사 UI로 렌더링
                 val encodedBrand = URLEncoder.encode(brand.name, "UTF-8")
-                val pgUrl = "${result.pgUrl}&card_brand=$encodedBrand"
+                // 에뮬레이터에서 localhost → 10.0.2.2 치환 (호스트 PC Mock PG 접근용)
+                val fixedPgUrl = result.pgUrl.replace("localhost", "10.0.2.2")
+                val separator  = if (fixedPgUrl.contains("?")) "&" else "?"
+                val pgUrl      = "$fixedPgUrl${separator}card_brand=$encodedBrand"
 
                 handler.post {
-                    tvStatus.text = "${brand.name} 카드 정보를 입력해 주세요"
+                    tvStatus.text = "STEP 3 · 카드 정보 입력"
                     webView.loadUrl(pgUrl)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "카드 주문 발급 실패: ${e.message}")
                 handler.post {
-                    progressBar.visibility       = View.GONE
-                    layoutBrandSelect.visibility = View.VISIBLE
-                    webView.visibility           = View.GONE
-                    tvStatus.text = "${userName}님, 결제 카드사를 선택해 주세요"
                     Toast.makeText(this,
                         "카드 등록 준비 실패: ${e.message}", Toast.LENGTH_LONG).show()
+                    goToStep(Step.BRAND)
                 }
             }
         }.start()
@@ -280,7 +361,7 @@ class CardRegistrationActivity : Activity() {
 
     inner class PgJsInterface {
         /**
-         * Mock PG HTML에서 카드 등록 완료 시 호출:
+         * Mock PG HTML에서 등록 완료 시:
          *   window.Android.onRegistrationComplete(customerKey, orderId, lastFour, cardBrand)
          */
         @JavascriptInterface
@@ -310,21 +391,28 @@ class CardRegistrationActivity : Activity() {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 뒤로가기 — WebView 중이면 브랜드 선택으로 복귀
+    // 뒤로가기 — 단계별 처리
     // ─────────────────────────────────────────────────────────────────────────
 
     override fun onBackPressed() {
-        when {
-            webView.visibility == View.VISIBLE && webView.canGoBack() -> webView.goBack()
-            webView.visibility == View.VISIBLE -> {
-                // WebView 닫고 브랜드 선택으로 돌아가기
-                webView.visibility           = View.GONE
-                layoutBrandSelect.visibility = View.VISIBLE
-                tvStatus.text = "${userName}님, 결제 카드사를 선택해 주세요"
-            }
-            else -> {
+        when (currentStep) {
+            Step.CONSENT -> {
+                // 동의 화면에서 뒤로 → 초기화면으로
                 setResult(RESULT_CANCELED)
                 super.onBackPressed()
+            }
+            Step.PLATE   -> {
+                // 번호판 입력에서 뒤로 → 동의 화면으로
+                goToStep(Step.CONSENT)
+            }
+            Step.BRAND   -> {
+                // 카드사 선택에서 뒤로 → 번호판 입력으로
+                goToStep(Step.PLATE)
+            }
+            Step.WEBVIEW -> {
+                // 카드 입력 WebView에서 뒤로 → 카드사 선택으로
+                if (webView.canGoBack()) webView.goBack()
+                else goToStep(Step.BRAND)
             }
         }
     }
@@ -344,4 +432,9 @@ class CardRegistrationActivity : Activity() {
             TypedValue.COMPLEX_UNIT_DIP, value.toFloat(),
             resources.displayMetrics
         ).toInt()
+
+    private fun hideKeyboard() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+    }
 }

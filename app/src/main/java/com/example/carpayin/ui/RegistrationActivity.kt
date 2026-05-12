@@ -224,43 +224,23 @@ class RegistrationActivity : Activity() {
 
         val displayName = result.userName.ifEmpty { "차량" }
 
-        // ── UI: QR 숨기고 "카드 등록 화면으로 이동 중..." 상태 표시 ──────────
-        ivQrCode.visibility    = View.GONE
-        btnCancel.visibility   = View.GONE
+        // ── UI: QR 숨기고 성공 메시지 잠깐 표시 ──────────────────────────────
+        ivQrCode.visibility     = View.GONE
+        btnCancel.visibility    = View.GONE
         btnRefreshQr.visibility = View.GONE
-        tvPollingStatus.text   = "✅ 마이현대 인증 완료!"
-        tvSubMessage.text      = "${displayName}님, 잠시 후 카드 등록 화면으로 이동합니다..."
+        tvPollingStatus.text    = "✅ 마이현대 인증 완료!"
+        tvSubMessage.text       = "${displayName}님, 카드 등록 화면으로 이동합니다..."
 
-        // ── 1.2초 후 자동으로 CardRegistrationActivity 이동 ─────────────────
+        // ── 0.8초 후 이 화면을 닫고 MainActivity로 복귀
+        //    MainActivity가 oauthComplete 플래그를 감지해 카드 등록 화면을 자동으로 시작
         handler.postDelayed({
-            val intent = Intent(this@RegistrationActivity, CardRegistrationActivity::class.java).apply {
-                putExtra(CardRegistrationActivity.EXTRA_VIN,          selectedVin)
-                putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, result.accessToken)
-                putExtra(CardRegistrationActivity.EXTRA_USER_NAME,    displayName)
-            }
-            startActivityForResult(intent, REQ_CARD_REG)
-        }, 1_200)
-    }
-
-    @Deprecated("Use registerForActivityResult")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_CARD_REG) {
-            if (resultCode == RESULT_OK) {
-                // 카드 등록 완료 → 앱 등록 상태 확정, OAuth 임시 플래그 제거
-                ParkingStateManager.setRegistered(this, true)
-                ParkingStateManager.setOAuthComplete(this, false)
-                setResult(RESULT_OK)
-            } else {
-                // 카드 등록 취소 — 등록 미완료 상태로 복귀
-                setResult(RESULT_CANCELED)
-            }
+            setResult(RESULT_OK)
             finish()
-        }
+        }, 800)
     }
 
     companion object {
-        private const val REQ_CARD_REG = 200
+        // REQ_CARD_REG 제거 — 카드 등록은 MainActivity가 직접 관리
     }
 
     override fun onDestroy() {

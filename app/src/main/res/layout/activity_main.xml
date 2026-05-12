@@ -134,6 +134,83 @@
     </LinearLayout>
 
     <!-- ══════════════════════════════════════════════ -->
+    <!-- OAuth 완료 · 카드 미등록 화면                    -->
+    <!-- ══════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/layoutOAuthPending"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <!-- 체크 아이콘 역할 텍스트 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✅"
+            android:textSize="56sp"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="마이현대 계정 연동 완료"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="10dp"/>
+
+        <TextView
+            android:id="@+id/tvOAuthPendingUser"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#00E87A"
+            android:textSize="15sp"
+            android:gravity="center"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="결제를 위해 카드를 등록해 주세요"
+            android:textColor="#556677"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:layout_marginBottom="48dp"/>
+
+        <View
+            android:layout_width="48dp"
+            android:layout_height="2dp"
+            android:background="#C8833B"
+            android:layout_marginBottom="48dp"/>
+
+        <Button
+            android:id="@+id/btnOAuthPendingRegisterCard"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="#00E87A"
+            android:text="카드 등록하기"
+            android:textColor="#000000"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnOAuthPendingCancel"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="#111820"
+            android:text="나중에 등록"
+            android:textColor="#556677"
+            android:textSize="14sp"/>
+
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════════ -->
     <!-- 등록 완료 화면                                  -->
     <!-- ══════════════════════════════════════════════ -->
     <ScrollView
@@ -252,15 +329,36 @@
                     android:fontFamily="monospace"/>
             </LinearLayout>
 
-            <Button
-                android:id="@+id/btnChangeCard"
+            <!-- 카드 관리 버튼 행 -->
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:background="#111820"
-                android:text="계정 재연동"
-                android:textColor="#AABBCC"
-                android:textSize="13sp"
-                android:layout_marginBottom="24dp"/>
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="24dp">
+
+                <Button
+                    android:id="@+id/btnRegisterCard"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="#00E87A"
+                    android:text="카드 등록"
+                    android:textColor="#000000"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:layout_marginEnd="8dp"/>
+
+                <Button
+                    android:id="@+id/btnChangeCard"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:background="#111820"
+                    android:text="계정 재연동"
+                    android:textColor="#AABBCC"
+                    android:textSize="13sp"/>
+
+            </LinearLayout>
 
             <!-- 차량 정보 -->
             <TextView
