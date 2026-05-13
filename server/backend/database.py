@@ -18,6 +18,7 @@ def refresh_expires_at() -> str:
 
 # vehicles 테이블에 추가될 수 있는 컬럼 목록 (기존 DB 마이그레이션용)
 _VEHICLES_COLUMNS = [
+    ("car_id",            "TEXT",    "''"),
     ("customer_key",      "TEXT",    "''"),
     ("payment_method_id", "TEXT",    "''"),
     ("card_last_four",    "TEXT",    "'0000'"),
@@ -27,6 +28,7 @@ _VEHICLES_COLUMNS = [
     ("hyundai_car_id",    "TEXT",    "''"),
     ("model_name",        "TEXT",    "''"),
     ("year",              "INTEGER", "0"),
+    ("vin_hash",          "TEXT",    "''"),
 ]
 
 def _migrate(con):
@@ -44,13 +46,28 @@ def _migrate(con):
             print(f"[DB 마이그레이션] vehicles.{col_name} 컬럼 추가")
 
     # login_sessions 테이블 마이그레이션 (vin_hash 추가)
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicles_car_id ON vehicles(car_id) WHERE car_id != ''")
+
     ls_existing = {row[1] for row in con.execute("PRAGMA table_info(login_sessions)").fetchall()}
     if "vin_hash" not in ls_existing:
         con.execute("ALTER TABLE login_sessions ADD COLUMN vin_hash TEXT DEFAULT ''")
         print("[DB 마이그레이션] login_sessions.vin_hash 컬럼 추가")
+    if "debug_message" not in ls_existing:
+        con.execute("ALTER TABLE login_sessions ADD COLUMN debug_message TEXT DEFAULT ''")
+        print("[DB migration] login_sessions.debug_message column added")
 
     # tokens 테이블 마이그레이션 (만료 시각 컬럼 추가)
+    if "selected_car_id" not in ls_existing:
+        con.execute("ALTER TABLE login_sessions ADD COLUMN selected_car_id TEXT DEFAULT ''")
+        print("[DB migration] login_sessions.selected_car_id column added")
+
     tk_existing = {row[1] for row in con.execute("PRAGMA table_info(tokens)").fetchall()}
+    if "car_id" not in tk_existing:
+        con.execute("ALTER TABLE tokens ADD COLUMN car_id TEXT DEFAULT ''")
+        print("[DB migration] tokens.car_id column added")
+    if "hyundai_user_id" not in tk_existing:
+        con.execute("ALTER TABLE tokens ADD COLUMN hyundai_user_id TEXT DEFAULT ''")
+        print("[DB migration] tokens.hyundai_user_id column added")
     if "expires_at" not in tk_existing:
         # 기존 토큰은 지금부터 24시간 유효로 설정
         con.execute("ALTER TABLE tokens ADD COLUMN expires_at TEXT DEFAULT ''")
@@ -60,6 +77,33 @@ def _migrate(con):
         con.execute("ALTER TABLE tokens ADD COLUMN refresh_expires_at TEXT DEFAULT ''")
         con.execute(f"UPDATE tokens SET refresh_expires_at='{refresh_expires_at()}'")
         print("[DB 마이그레이션] tokens.refresh_expires_at 컬럼 추가")
+
+    con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token) WHERE access_token != ''")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token)")
+
+    ht_existing = {row[1] for row in con.execute("PRAGMA table_info(hyundai_tokens)").fetchall()}
+    if "car_id" not in ht_existing:
+        con.execute("ALTER TABLE hyundai_tokens ADD COLUMN car_id TEXT DEFAULT ''")
+        print("[DB migration] hyundai_tokens.car_id column added")
+    if "hyundai_user_id" not in ht_existing:
+        con.execute("ALTER TABLE hyundai_tokens ADD COLUMN hyundai_user_id TEXT DEFAULT ''")
+        print("[DB migration] hyundai_tokens.hyundai_user_id column added")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_hyundai_tokens_user ON hyundai_tokens(hyundai_user_id)")
+
+    pn_existing = {row[1] for row in con.execute("PRAGMA table_info(pre_notify)").fetchall()}
+    if "car_id" not in pn_existing:
+        con.execute("ALTER TABLE pre_notify ADD COLUMN car_id TEXT DEFAULT ''")
+        print("[DB migration] pre_notify.car_id column added")
+
+    sess_existing = {row[1] for row in con.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "car_id" not in sess_existing:
+        con.execute("ALTER TABLE sessions ADD COLUMN car_id TEXT DEFAULT ''")
+        print("[DB migration] sessions.car_id column added")
+
+    co_existing = {row[1] for row in con.execute("PRAGMA table_info(card_orders)").fetchall()}
+    if "car_id" not in co_existing:
+        con.execute("ALTER TABLE card_orders ADD COLUMN car_id TEXT DEFAULT ''")
+        print("[DB migration] card_orders.car_id column added")
 
 def cleanup_expired_tokens(con):
     """만료된 토큰 DB에서 삭제 (서버 시작 시 호출)"""
@@ -74,7 +118,7 @@ def init_db():
     with get_conn() as con:
         con.executescript("""
             CREATE TABLE IF NOT EXISTS vehicles (
-                vin               TEXT PRIMARY KEY,
+                car_id            TEXT PRIMARY KEY,
                 plate             TEXT,
                 customer_key      TEXT    DEFAULT '',
                 payment_method_id TEXT    DEFAULT '',
@@ -82,22 +126,24 @@ def init_db():
                 card_brand        TEXT    DEFAULT '',
                 registered_at     TEXT    DEFAULT '',
                 hyundai_user_id   TEXT    DEFAULT '',
-                hyundai_car_id    TEXT    DEFAULT '',
                 model_name        TEXT    DEFAULT '',
-                year              INTEGER DEFAULT 0
+                year              INTEGER DEFAULT 0,
+                vin_hash          TEXT    DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS hyundai_tokens (
-                vin                   TEXT PRIMARY KEY,
+                hyundai_user_id       TEXT PRIMARY KEY,
+                car_id                TEXT DEFAULT '',
                 hyundai_access_token  TEXT,
                 hyundai_refresh_token TEXT,
                 issued_at             TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tokens (
-                vin                 TEXT PRIMARY KEY,
-                access_token        TEXT,
-                refresh_token       TEXT,
+                access_token        TEXT PRIMARY KEY,
+                refresh_token       TEXT UNIQUE,
+                car_id              TEXT DEFAULT '',
+                hyundai_user_id     TEXT DEFAULT '',
                 issued_at           TEXT,
                 expires_at          TEXT DEFAULT '',
                 refresh_expires_at  TEXT DEFAULT ''
@@ -106,14 +152,14 @@ def init_db():
             CREATE TABLE IF NOT EXISTS pre_notify (
                 plate      TEXT,
                 lot_id     TEXT,
-                vin        TEXT,
+                car_id     TEXT,
                 created_at TEXT,
                 PRIMARY KEY (plate, lot_id)
             );
 
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id  TEXT PRIMARY KEY,
-                vin         TEXT,
+                car_id      TEXT,
                 plate       TEXT,
                 lot_id      TEXT,
                 entry_time  TEXT,
@@ -134,14 +180,13 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS card_orders (
                 order_id   TEXT PRIMARY KEY,
-                vin        TEXT,
+                car_id     TEXT,
                 created_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS login_sessions (
                 session_id    TEXT PRIMARY KEY,
                 vin_hash      TEXT DEFAULT '',
-                vin           TEXT DEFAULT '',
                 status        TEXT DEFAULT 'pending',
                 access_token  TEXT DEFAULT '',
                 refresh_token TEXT DEFAULT '',
@@ -150,6 +195,8 @@ def init_db():
                 user_name     TEXT DEFAULT '',
                 model_name    TEXT DEFAULT '',
                 vin_list_json TEXT DEFAULT '[]',
+                debug_message TEXT DEFAULT '',
+                selected_car_id TEXT DEFAULT '',
                 created_at    TEXT
             );
         """)

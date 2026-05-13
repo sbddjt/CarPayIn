@@ -28,12 +28,12 @@ def publish(topic: str, payload: dict):
     _client.publish(topic, json.dumps(payload, ensure_ascii=False))
     print(f"[MQTT 발행] {topic}")
 
-def notify_entry(session_id: str, lot_id: str, plate: str, entry_time: str, vin: str = ""):
+def notify_entry(session_id: str, lot_id: str, plate: str, entry_time: str, car_id: str = ""):
     """
-    앱 구독 토픽: parking/confirmed/{vin}
+    앱 구독 토픽: parking/confirmed/{car_id}
     payload: { lot_id, session_id, lot_name }
     """
-    topic = f"parking/confirmed/{vin}" if vin else "parking/confirmed/+"
+    topic = f"parking/confirmed/{car_id}" if car_id else "parking/confirmed/+"
     publish(topic, {
         "session_id": session_id,
         "lot_id":     lot_id,
@@ -42,12 +42,12 @@ def notify_entry(session_id: str, lot_id: str, plate: str, entry_time: str, vin:
         "entry_time": entry_time
     })
 
-def notify_payment(tx_id: str, approval_no: str, lot_id: str, amount: int, vin: str = ""):
+def notify_payment(tx_id: str, approval_no: str, lot_id: str, amount: int, car_id: str = ""):
     """
-    앱 구독 토픽: payment/complete/{vin}
+    앱 구독 토픽: payment/complete/{car_id}
     payload: { transaction_id, approval_number, lot_id, amount }
     """
-    topic = f"payment/complete/{vin}" if vin else "payment/complete/+"
+    topic = f"payment/complete/{car_id}" if car_id else "payment/complete/+"
     publish(topic, {
         "transaction_id":  tx_id,
         "approval_number": approval_no,

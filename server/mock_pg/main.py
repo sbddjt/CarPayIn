@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 HMAC_SECRET   = "mock_pg_secret_key_carpayin"
-BACKEND_URL   = os.environ.get("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL   = os.environ.get("BACKEND_URL", "http://localhost:8002")
 
 # ── 카드 등록 HTML 페이지 ───────────────────────────────────────────────────────
 

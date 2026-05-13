@@ -218,7 +218,7 @@ object GeofenceManager {
         Log.d(TAG, "위치 업데이트 중지, 감지 캐시 초기화")
     }
 
-    private const val BASE_URL = "http://10.0.2.2:8000"
+    private const val BASE_URL = "http://10.0.2.2:8002"
 
     fun isActive(): Boolean = locationManager != null || simRunning
 }

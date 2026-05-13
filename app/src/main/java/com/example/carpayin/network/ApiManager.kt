@@ -12,10 +12,10 @@ class SessionExpiredException : Exception("세션이 만료되었습니다. 다�
 
 object ApiManager {
     private const val TAG = "ApiManager"
-    const val BASE_URL = "http://10.0.2.2:8000"
+    const val BASE_URL = "http://10.0.2.2:8002"
     const val QR_BASE_URL = "https://pretext-armless-wieldable.ngrok-free.dev"
 
-    data class VinInfo(val vin: String, val carId: String, val modelName: String, val year: Int)
+    data class VehicleInfo(val carId: String, val modelName: String, val year: Int)
     data class CardOrderResult(val orderId: String, val pgUrl: String)
     data class ParkingLotInfo(val id: String, val name: String, val lat: Double, val lng: Double)
     data class FeeResult(val lotName: String, val durationMinutes: Int, val amount: Int)
@@ -42,13 +42,14 @@ object ApiManager {
 
     data class SessionStatusResult(
         val isComplete: Boolean,
+        val status: String = "pending",
         val accessToken: String = "",
         val refreshToken: String = "",
         val plateNumber: String = "",
         val userId: String = "",
         val userName: String = "",
         val modelName: String = "",
-        val vinList: List<VinInfo> = emptyList(),
+        val vehicleList: List<VehicleInfo> = emptyList(),
         val cardLastFour: String = "****",
         val cardBrand: String = "현대카드",
         val debugMessage: String = ""
@@ -62,12 +63,24 @@ object ApiManager {
             try {
                 val response = getJson(URL("$baseUrl/auth/session/$sessionId/status"))
                 val status = response.optString("status", "pending")
-                val message = "$baseUrl -> $status"
+                val serverMessage = response.optString("debug_message", "")
+                val message = if (serverMessage.isNotBlank()) {
+                    "$baseUrl -> $status: $serverMessage"
+                } else {
+                    "$baseUrl -> $status"
+                }
                 messages.add(message)
                 Log.d(TAG, "login session ${sessionId.take(8)} $message")
 
                 if (status == "complete") {
                     return parseCompleteSession(response).copy(debugMessage = message)
+                }
+                if (status != "pending") {
+                    return SessionStatusResult(
+                        isComplete = false,
+                        status = status,
+                        debugMessage = message
+                    )
                 }
             } catch (e: Exception) {
                 val message = "$baseUrl -> ${e.message}"
@@ -78,18 +91,18 @@ object ApiManager {
 
         return SessionStatusResult(
             isComplete = false,
+            status = "pending",
             debugMessage = messages.joinToString(" / ")
         )
     }
 
     private fun parseCompleteSession(response: JSONObject): SessionStatusResult {
-        val vinArray = response.optJSONArray("vin_list")
-        val vinList = mutableListOf<VinInfo>()
-        if (vinArray != null) {
-            for (i in 0 until vinArray.length()) {
-                val item = vinArray.getJSONObject(i)
-                vinList.add(VinInfo(
-                    vin       = item.optString("vin", ""),
+        val vehicleArray = response.optJSONArray("vehicles") ?: response.optJSONArray("vin_list")
+        val vehicleList = mutableListOf<VehicleInfo>()
+        if (vehicleArray != null) {
+            for (i in 0 until vehicleArray.length()) {
+                val item = vehicleArray.getJSONObject(i)
+                vehicleList.add(VehicleInfo(
                     carId     = item.optString("car_id", ""),
                     modelName = item.optString("model_name", ""),
                     year      = item.optInt("year", 0)
@@ -99,32 +112,35 @@ object ApiManager {
 
         return SessionStatusResult(
             isComplete   = true,
+            status       = "complete",
             accessToken  = response.optString("access_token", ""),
             refreshToken = response.optString("refresh_token", ""),
             plateNumber  = response.optString("plate_number", ""),
             userId       = response.optString("user_id", ""),
             userName     = response.optString("user_name", ""),
             modelName    = response.optString("model_name", ""),
-            vinList      = vinList,
+            vehicleList  = vehicleList,
             cardLastFour = response.optString("card_last_four", "****"),
             cardBrand    = response.optString("card_brand", "현대카드")
         )
     }
 
-    fun confirmVin(vin: String, carId: String, modelName: String, year: Int, accessToken: String) {
+    fun confirmCar(vinHash: String, carId: String, accessToken: String) {
         val body = JSONObject().apply {
-            put("vin", vin)
+            put("vin_hash", vinHash)
             put("car_id", carId)
-            put("model_name", modelName)
-            put("year", year)
         }.toString()
-        postJson(URL("$BASE_URL/auth/confirm-vin"), body, accessToken)
+        postJson(URL("$BASE_URL/auth/confirm-car"), body, accessToken)
     }
 
     fun refreshToken(refreshToken: String): TokenResult {
         val body = JSONObject().apply { put("refresh_token", refreshToken) }.toString()
         val response = postJson(URL("$BASE_URL/auth/refresh"), body)
         return TokenResult(response.getString("access_token"), response.getString("refresh_token"))
+    }
+
+    fun unregister(accessToken: String) {
+        postJson(URL("$BASE_URL/auth/unregister"), "{}", accessToken)
     }
 
     fun createCardOrder(plate: String, bankName: String, agreeTerms: Boolean, accessToken: String): CardOrderResult {
@@ -158,9 +174,9 @@ object ApiManager {
         }
     }
 
-    fun sendPreNotification(vin: String, plate: String, lotId: String, triggerType: String, accessToken: String) {
+    fun sendPreNotification(carId: String, plate: String, lotId: String, triggerType: String, accessToken: String) {
         val body = JSONObject().apply {
-            put("vin", vin); put("plate", plate); put("lot_id", lotId); put("trigger", triggerType.lowercase())
+            put("car_id", carId); put("plate", plate); put("lot_id", lotId); put("trigger", triggerType.lowercase())
         }.toString()
         postJson(URL("$BASE_URL/pre-notify"), body, accessToken)
     }

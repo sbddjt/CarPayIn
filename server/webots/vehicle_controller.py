@@ -12,7 +12,7 @@ vehicle_controller.py  –  Webots 자율주행 차량 컨트롤러
   실제 GPS:    lat=37.493087, lng=127.049750
 
 차량 설정:
-  - 백엔드 서버: http://localhost:8000 (Webots는 호스트 PC이므로 localhost 직접 사용)
+  - 백엔드 서버: http://localhost:8002 (Webots는 호스트 PC이므로 localhost 직접 사용)
   - VIN: TESTVIN001 (백엔드 mock에 등록된 테스트 VIN)
   - 번호판: 123가4567 (VIN TESTVIN001에 매핑됨)
 
@@ -36,7 +36,7 @@ except ImportError:
 
 # ── 설정 ───────────────────────────────────────────────────────────────────
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "http://localhost:8002"
 
 # 차량 정보 (백엔드 mock 데이터와 일치)
 VIN            = "TESTVIN001"

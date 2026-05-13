@@ -18,8 +18,8 @@ import org.json.JSONObject
  *  → 결제는 앱이 백엔드 REST API에 직접 요청, 앱은 어떤 결제 키도 보유하지 않음
  *
  * 토픽 구조:
- *  parking/confirmed/{vin}   → 입차 확정 (Kafka Consumer 처리 완료)
- *  payment/complete/{vin}    → 결제 완료 (영수증 정보 포함)
+ *  parking/confirmed/{carId}   → 입차 확정 (Kafka Consumer 처리 완료)
+ *  payment/complete/{carId}    → 결제 완료 (영수증 정보 포함)
  */
 object MqttManager {
     private const val TAG = "MqttManager"
@@ -57,9 +57,9 @@ object MqttManager {
     /** 연결 끊김 감지 콜백 (CarPayInService 워치독이 재연결 트리거) */
     var onConnectionLost: ((cause: Throwable?) -> Unit)? = null
 
-    fun connect(vin: String) {
+    fun connect(carId: String) {
         try {
-            client = MqttClient(BROKER_URL, vin, MemoryPersistence())
+            client = MqttClient(BROKER_URL, carId, MemoryPersistence())
 
             // 연결 끊김 / 메시지 수신 / 전송 완료 콜백
             client?.setCallback(object : MqttCallback {
@@ -79,24 +79,24 @@ object MqttManager {
                 connectionTimeout = 10
                 isAutomaticReconnect = false  // 워치독이 재연결 담당
                 setWill(
-                    "system/disconnect/$vin",
+                    "system/disconnect/$carId",
                     "disconnected".toByteArray(),
                     0, false
                 )
             }
             client?.connect(options)
-            subscribeTopics(vin)
-            Log.d(TAG, "MQTT 연결 성공: VIN ${vin.take(8)}…")
+            subscribeTopics(carId)
+            Log.d(TAG, "MQTT 연결 성공: carId ${carId.takeLast(8)}")
         } catch (e: Exception) {
             Log.e(TAG, "MQTT 연결 실패: ${e.message}")
         }
     }
 
-    private fun subscribeTopics(vin: String) {
+    private fun subscribeTopics(carId: String) {
         // ── 입차 확정 알림 (QoS 1: 적어도 1회 전달 보장) ────────────────────
         // 백엔드 Kafka Consumer가 Redis + PostgreSQL 저장 완료 후 발행
         // Payload: { "lot_id": "LOT_GANGNAM_01", "session_id": "ps_xxx", "lot_name": "강남 아이파킹" }
-        client?.subscribe("parking/confirmed/$vin", 1) { _, message ->
+        client?.subscribe("parking/confirmed/$carId", 1) { _, message ->
             runCatching {
                 val payload = JSONObject(String(message.payload))
                 val lotId     = payload.optString("lot_id", "")
@@ -110,7 +110,7 @@ object MqttManager {
         // 백엔드 Kafka Consumer가 PostgreSQL 거래 내역 저장 + 아이파킹 paid 전달 완료 후 발행
         // Payload: { "transaction_id": "TX_...", "approval_number": "APPR_...",
         //            "lot_id": "LOT_...", "amount": 6000 }
-        client?.subscribe("payment/complete/$vin", 1) { _, message ->
+        client?.subscribe("payment/complete/$carId", 1) { _, message ->
             runCatching {
                 val payload    = JSONObject(String(message.payload))
                 val txId       = payload.optString("transaction_id", "")

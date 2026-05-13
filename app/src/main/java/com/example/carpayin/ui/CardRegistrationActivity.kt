@@ -40,6 +40,7 @@ class CardRegistrationActivity : Activity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvStepIndicator: TextView
     private lateinit var btnCancel: TextView
+    private lateinit var btnPrevStep: TextView
 
     private lateinit var layoutConsent: LinearLayout
     private lateinit var btnConsentAgree: Button
@@ -51,12 +52,10 @@ class CardRegistrationActivity : Activity() {
     private lateinit var layoutBrandSelect: LinearLayout
     private lateinit var brandGrid: LinearLayout
 
-    private lateinit var vin: String
     private lateinit var accessToken: String
     private lateinit var userName: String
 
     companion object {
-        const val EXTRA_VIN          = "extra_vin"
         const val EXTRA_ACCESS_TOKEN = "extra_access_token"
         const val EXTRA_USER_NAME    = "extra_user_name"
     }
@@ -92,6 +91,7 @@ class CardRegistrationActivity : Activity() {
         tvStatus          = findViewById(R.id.tvCardStatus)
         tvStepIndicator   = findViewById(R.id.tvStepIndicator)
         btnCancel         = findViewById(R.id.btnCancelCard)
+        btnPrevStep       = findViewById(R.id.btnPrevStep)
         layoutConsent     = findViewById(R.id.layoutConsent)
         btnConsentAgree   = findViewById(R.id.btnConsentAgree)
         layoutPlateInput  = findViewById(R.id.layoutPlateInput)
@@ -100,7 +100,6 @@ class CardRegistrationActivity : Activity() {
         layoutBrandSelect = findViewById(R.id.layoutBrandSelect)
         brandGrid         = findViewById(R.id.brandGrid)
 
-        vin         = intent.getStringExtra(EXTRA_VIN)          ?: ""
         accessToken = intent.getStringExtra(EXTRA_ACCESS_TOKEN) ?: ""
         userName    = intent.getStringExtra(EXTRA_USER_NAME)    ?: "고객"
 
@@ -110,7 +109,13 @@ class CardRegistrationActivity : Activity() {
         }
 
         btnCancel.setOnClickListener {
+            // 어떤 단계에 있든 즉시 메인(로그인됨/카드 미등록) 화면으로 복귀
             returnToOAuthPending()
+        }
+
+        btnPrevStep.setOnClickListener {
+            // 한 단계만 되돌아감 — onBackPressed() 와 동일한 동작을 재사용
+            goPrevStep()
         }
 
         btnConsentAgree.setOnClickListener { goToStep(Step.PLATE) }
@@ -162,6 +167,26 @@ class CardRegistrationActivity : Activity() {
                 progressBar.visibility = View.VISIBLE
                 tvStatus.text        = "STEP 3 · 카드 정보 입력"
                 tvStepIndicator.text = "4 / 4"
+            }
+        }
+
+        // 첫 단계(CONSENT)에서는 '이전'이 의미 없으므로 숨기고,
+        // 그 외 단계에서는 헤더에 '← 이전' 버튼을 노출한다.
+        btnPrevStep.visibility = if (step == Step.CONSENT) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * '← 이전' / 시스템 백 버튼 공통 처리.
+     * 단계에 맞춰 한 단계만 되돌아간다. WEBVIEW 단계에서는 WebView 의
+     * 내부 히스토리가 있으면 그쪽을 먼저 소비한다.
+     */
+    private fun goPrevStep() {
+        when (currentStep) {
+            Step.CONSENT -> returnToOAuthPending()  // 첫 단계에서는 '처음으로'와 동일
+            Step.PLATE   -> goToStep(Step.CONSENT)
+            Step.BRAND   -> goToStep(Step.PLATE)
+            Step.WEBVIEW -> {
+                if (webView.canGoBack()) webView.goBack() else goToStep(Step.BRAND)
             }
         }
     }
@@ -342,16 +367,8 @@ class CardRegistrationActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        when (currentStep) {
-            Step.CONSENT -> {
-                returnToOAuthPending()
-            }
-            Step.PLATE   -> goToStep(Step.CONSENT)
-            Step.BRAND   -> goToStep(Step.PLATE)
-            Step.WEBVIEW -> {
-                if (webView.canGoBack()) webView.goBack() else goToStep(Step.BRAND)
-            }
-        }
+        // 시스템 백 버튼도 '← 이전' 버튼과 동일하게 동작
+        goPrevStep()
     }
 
     override fun onDestroy() {
@@ -361,14 +378,15 @@ class CardRegistrationActivity : Activity() {
     }
 
     private fun returnToOAuthPending() {
+        // OAuth(마이현대) 로그인 상태는 유지하고 카드 등록 상태만 해제한다.
         ParkingStateManager.setOAuthComplete(this, true)
         ParkingStateManager.setRegistered(this, false)
+        // MainActivity.onActivityResult(101, RESULT_CANCELED) 가
+        //  showOAuthPendingState() 로 화면을 복귀시켜 주므로,
+        //  여기서 별도로 startActivity 를 호출하면 안 된다.
+        //  (FLAG_ACTIVITY_CLEAR_TOP + startActivityForResult 와 충돌해
+        //   onActivityResult 가 사라지거나 화면이 두 번 그려지는 문제가 있었다.)
         setResult(RESULT_CANCELED)
-        startActivity(Intent(this, MainActivity::class.java).apply {
-            action = MainActivity.ACTION_SHOW_OAUTH_PENDING
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra(MainActivity.EXTRA_SHOW_OAUTH_PENDING, true)
-        })
         finish()
     }
 

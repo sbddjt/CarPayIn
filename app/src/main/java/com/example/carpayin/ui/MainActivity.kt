@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -55,6 +56,8 @@ class MainActivity : AppCompatActivity() {
     // 🌟 원하시던 중간 화면 UI
     private lateinit var layoutOAuthPending: LinearLayout
     private lateinit var tvOAuthPendingUser: TextView
+    private lateinit var btnOAuthPendingRegisterCard: Button
+    private lateinit var btnOAuthPendingCancel: Button
 
     private lateinit var btnResetApp: Button
     private lateinit var mainCardBody: LinearLayout
@@ -103,6 +106,8 @@ class MainActivity : AppCompatActivity() {
 
         layoutOAuthPending  = findViewById(R.id.layoutOAuthPending)
         tvOAuthPendingUser  = findViewById(R.id.tvOAuthPendingUser)
+        btnOAuthPendingRegisterCard = findViewById(R.id.btnOAuthPendingRegisterCard)
+        btnOAuthPendingCancel = findViewById(R.id.btnOAuthPendingCancel)
 
         btnResetApp        = findViewById(R.id.btnResetApp)
         mainCardBody       = findViewById(R.id.mainCardBody)
@@ -118,6 +123,9 @@ class MainActivity : AppCompatActivity() {
         layoutParkingLots  = findViewById(R.id.layoutParkingLots)
 
         btnResetApp.setOnClickListener { confirmReset() }
+        // ⚠️ onCreate 단계에서는 클릭 리스너를 걸지 않습니다.
+        // 'OAuth 인증 완료 / 카드 미등록' 상태로 진입하는 showOAuthPendingState()에서
+        // 한 번만 리스너를 등록해 동작이 중복되거나 덮어써지지 않도록 합니다.
         setupDevTrigger()
 
         VehicleDataManager.init(this)
@@ -186,17 +194,102 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 여기서 '카드 등록' 버튼을 누르면 은행사 선택 화면으로 넘어갑니다.
-        findViewById<Button>(R.id.btnOAuthPendingRegisterCard).setOnClickListener {
+        btnOAuthPendingRegisterCard.setOnClickListener {
             launchCardRegistrationOnly()
         }
 
-        // 카드 등록은 나중에 하되, 마이현대 로그인 상태는 유지합니다.
-        findViewById<Button>(R.id.btnOAuthPendingCancel).setOnClickListener {
-            ParkingStateManager.setOAuthComplete(this, true)
-            ParkingStateManager.setRegistered(this, false)
-            showOAuthPendingState()
-            Toast.makeText(this, "카드 등록 전까지 자동 결제는 대기 상태입니다.", Toast.LENGTH_SHORT).show()
+        // '나중에 등록' → 마이현대 로그인 상태를 유지한 채
+        // 현재(로그인 인증 완료) 초기 화면에 그대로 머무릅니다.
+        // 앱을 백그라운드로 보내거나 종료하지 않습니다.
+        btnOAuthPendingCancel.setOnClickListener {
+            deferCardRegistration()
         }
+    }
+
+    /**
+     * 카드 등록을 나중으로 미루는 동작.
+     * - 로그인(OAuth) 상태는 유지
+     * - 카드 등록 상태는 false 유지
+     * - 사용자는 '메인 화면 형태' 의 화면을 보게 되며,
+     *   카드 영역은 '카드 미등록' 플레이스홀더 / '카드 등록하기' CTA 가 노출됩니다.
+     */
+    private fun deferCardRegistration() {
+        ParkingStateManager.setOAuthComplete(this, true)
+        ParkingStateManager.setRegistered(this, false)
+        Toast.makeText(
+            this,
+            "카드 등록 전까지 자동 결제는 대기 상태입니다.\n언제든 '카드 등록하기'를 눌러 진행할 수 있습니다.",
+            Toast.LENGTH_LONG
+        ).show()
+        showLoggedInNoCardState()
+    }
+
+    /**
+     * ✨ '마이현대 로그인은 완료 / 카드는 아직 미등록' 상태에서의 메인 화면.
+     *
+     * - 카드 등록 후 화면(layoutRegistered)을 그대로 재사용해 메인 UI 의 일관성을 유지
+     * - 카드 표시 영역에는 '카드 미등록' 플레이스홀더를 그려서 "등록된 카드가 없는 것처럼" 보이게 함
+     * - 'btnRegisterCard' 를 메인 CTA('카드 등록하기')로 노출
+     * - 결제·정산 관련 섹션은 비활성화/숨김 처리하여 오인 클릭을 방지
+     */
+    private fun showLoggedInNoCardState() {
+        layoutUnregistered.visibility  = View.GONE
+        layoutRegistered.visibility    = View.VISIBLE
+        layoutOAuthPending.visibility  = View.GONE
+        btnResetApp.visibility         = View.VISIBLE
+
+        tvVinShort.text    = maskVin(vin)
+        tvPlateNumber.text = ParkingStateManager.getPlateNumber(this) ?: "—"
+
+        val userName  = ParkingStateManager.getHyundaiUserName(this)
+        val modelName = ParkingStateManager.getHyundaiModelName(this)
+        if (modelName.isNotEmpty()) {
+            tvVinShort.text = "$modelName  ${maskVin(vin)}"
+        }
+
+        // ── 카드 영역: '카드 미등록' 플레이스홀더 ─────────────────────────────
+        mainCardBody.setBackgroundColor(0xFF1A1F2A.toInt())
+        mainCardBrand.text   = "카드 미등록"
+        mainCardBrand.setTextColor(0xFF8899AA.toInt())
+        mainCardNetwork.text = "—"
+        mainCardNetwork.setTextColor(0xFF556677.toInt())
+        mainCardNumber.text  = "•••• •••• •••• ••••"
+
+        // 상태바: 결제 대기
+        tvPaymentStatus.text = "카드 등록 전 — 자동 결제 대기 중"
+        tvStatusDot.setTextColor(0xFFFFD700.toInt())
+        updateParkingBadge(false)
+
+        // ── 메인 CTA: '카드 등록하기' ────────────────────────────────────────
+        val btnRegisterCard = findViewById<Button>(R.id.btnRegisterCard)
+        btnRegisterCard.text = "카드 등록하기"
+        btnRegisterCard.setOnClickListener { launchCardRegistrationOnly() }
+
+        // 계정 재연동 버튼은 그대로 유지
+        findViewById<Button>(R.id.btnChangeCard).setOnClickListener {
+            val accountLabel = if (userName.isNotEmpty()) "$userName 님 계정" else "마이현대 계정"
+            AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
+                .setTitle("계정 재연동")
+                .setMessage("$accountLabel\n\nQR 스캔으로 마이현대 계정을 다시 연동하시겠습니까?")
+                .setPositiveButton("재연동") { _, _ ->
+                    startActivityForResult(Intent(this, RegistrationActivity::class.java), 100)
+                }
+                .setNegativeButton("취소", null)
+                .show()
+        }
+
+        // 카드가 없으므로 정산 버튼은 카드 등록을 유도
+        btnSettleNow.setOnClickListener {
+            Toast.makeText(this, "먼저 카드를 등록해 주세요.", Toast.LENGTH_SHORT).show()
+            launchCardRegistrationOnly()
+        }
+
+        // 결제 관련 섹션은 숨김 / 비움
+        hideParkingActiveSection()
+        findViewById<LinearLayout>(R.id.layoutTxHistory).removeAllViews()
+
+        // 주차장 목록은 정보용으로 노출 (탭하면 내비게이션은 가능)
+        populateParkingLots()
     }
 
     private fun showRegisteredState() {
@@ -225,7 +318,10 @@ class MainActivity : AppCompatActivity() {
         mainCardNetwork.text = theme.network
         mainCardNumber.text  = "•••• •••• •••• $lastFour"
 
-        findViewById<Button>(R.id.btnRegisterCard).setOnClickListener {
+        val btnRegisterCardRegistered = findViewById<Button>(R.id.btnRegisterCard)
+        // showLoggedInNoCardState 에서 '카드 등록하기' 로 변경되었을 수 있으므로 원래 라벨로 복구
+        btnRegisterCardRegistered.text = "카드 등록"
+        btnRegisterCardRegistered.setOnClickListener {
             AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
                 .setTitle("카드 변경")
                 .setMessage("새 카드를 등록합니다.\n번호판 확인 후 카드 정보를 입력해 주세요.")
@@ -268,12 +364,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchCardRegistrationOnly() {
+        val token = ParkingStateManager.getAccessToken(this)
+        if (token.isNullOrBlank()) {
+            Log.w(TAG, "Card registration blocked: missing access token")
+            Toast.makeText(this, "로그인 토큰이 없습니다. QR 로그인을 다시 진행해 주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val carId = ParkingStateManager.getHyundaiCarId(this)
+        if (carId.isBlank()) {
+            Log.w(TAG, "Card registration blocked: missing carId")
+            Toast.makeText(this, "연결된 차량 정보가 없습니다. QR 로그인을 다시 진행해 주세요.", Toast.LENGTH_LONG).show()
+            return
+        }
+        Log.d(TAG, "Launching card registration carId=${carId.takeLast(8)} token=${token.take(8)}")
         val intent = Intent(this, CardRegistrationActivity::class.java).apply {
-            putExtra(CardRegistrationActivity.EXTRA_VIN, vin)
-            putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, ParkingStateManager.getAccessToken(this@MainActivity) ?: "")
+            putExtra(CardRegistrationActivity.EXTRA_ACCESS_TOKEN, token)
             putExtra(CardRegistrationActivity.EXTRA_USER_NAME, ParkingStateManager.getHyundaiUserName(this@MainActivity))
         }
-        startActivityForResult(intent, 101)
+        runCatching {
+            startActivityForResult(intent, 101)
+        }.onFailure {
+            Log.e(TAG, "Failed to launch CardRegistrationActivity", it)
+            Toast.makeText(this, "카드 등록 화면을 열 수 없습니다: ${it.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun getCardBrandTheme(brandName: String): BrandTheme {
@@ -393,8 +506,9 @@ class MainActivity : AppCompatActivity() {
 
                 val plate = ParkingStateManager.getPlateNumber(this)
                 val token = ParkingStateManager.getAccessToken(this)
-                if (plate != null && token != null) {
-                    Thread { runCatching { ApiManager.sendPreNotification(vin, plate, lot.id, "NAVI", token) } }.start()
+                val carId = ParkingStateManager.getHyundaiCarId(this)
+                if (plate != null && token != null && carId.isNotBlank()) {
+                    Thread { runCatching { ApiManager.sendPreNotification(carId, plate, lot.id, "NAVI", token) } }.start()
                 }
                 Toast.makeText(this, "🧭 ${lot.name} 경로 안내 시작", Toast.LENGTH_SHORT).show()
             }
@@ -415,13 +529,72 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startServicesAndListeners() {
-        val fineGranted = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fineGranted) {
-            ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION_PERM)
-        }
-        CarPayInService.start(this)
+        // 콜백/UI 업데이트는 권한과 무관하므로 먼저 등록한다.
         registerServiceCallbacks()
-        handler.postDelayed({ tvStatusDot.setTextColor(if (MqttManager.isConnected()) 0xFF00FF88.toInt() else 0xFF888888.toInt()) }, 2_000)
+        handler.postDelayed({
+            tvStatusDot.setTextColor(
+                if (MqttManager.isConnected()) 0xFF00FF88.toInt() else 0xFF888888.toInt()
+            )
+        }, 2_000)
+
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (fineGranted) {
+            // 위치 권한이 이미 있으면 location-type 포그라운드 서비스를 안전하게 시작할 수 있다.
+            safeStartCarPayInService()
+        } else {
+            // ⚠️ Android 14(targetSdk 34) 에서 foregroundServiceType="location" 인 서비스를
+            //    위치 권한이 없는 상태로 startForegroundService 하면 SecurityException 또는
+            //    MissingForegroundServiceTypeException 으로 앱이 즉시 종료된다.
+            //    → 권한 다이얼로그 응답이 올 때까지 서비스 시작을 미룬다.
+            Log.d(TAG, "위치 권한 미부여 → 권한 요청 후 서비스 시작 예정")
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                ),
+                REQ_LOCATION_PERM
+            )
+        }
+    }
+
+    /**
+     * Foreground Service 시작 시도. AAOS / 에뮬레이터 별로 OS 정책이 달라
+     * 예기치 못한 RuntimeException 이 발생하더라도 앱이 죽지 않도록 방어한다.
+     */
+    private fun safeStartCarPayInService() {
+        try {
+            CarPayInService.start(this)
+        } catch (t: Throwable) {
+            Log.e(TAG, "CarPayInService 시작 실패 (앱은 계속 동작): ${t.javaClass.simpleName} ${t.message}")
+            // 서비스가 안 떠도 화면 자체는 정상 동작하도록 유지.
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOCATION_PERM) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                Log.d(TAG, "위치 권한 부여됨 → CarPayInService 시작")
+                safeStartCarPayInService()
+            } else {
+                Log.w(TAG, "위치 권한 거부 → 자동 결제 감시는 제한적으로 동작")
+                Toast.makeText(
+                    this,
+                    "위치 권한이 없어 자동 입차 감지는 제한됩니다.\n수동 정산은 계속 사용할 수 있습니다.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     private fun registerServiceCallbacks() {
@@ -541,12 +714,13 @@ class MainActivity : AppCompatActivity() {
                     showRegisteredState()
                     startServicesAndListeners()
                 } else {
-                    // 🌟 사용자가 카드 등록 중에 '처음으로(취소)'를 누른 경우!
-                    // 로그인 정보를 지우지 않고 안전하게 중간 화면에 머무릅니다.
+                    // 🌟 사용자가 카드 등록 중에 '처음으로 / 이전'을 눌러 빠져나온 경우.
+                    // 로그인(OAuth) 상태는 유지하고, 메인 형태의
+                    // 'logged-in / no-card' 화면으로 복귀한다.
                     ParkingStateManager.setOAuthComplete(this, true)
                     ParkingStateManager.setRegistered(this, false)
                     if (ParkingStateManager.isOAuthComplete(this)) {
-                        showOAuthPendingState()
+                        showLoggedInNoCardState()
                     } else {
                         showUnregisteredState()
                     }
@@ -590,8 +764,12 @@ class MainActivity : AppCompatActivity() {
                 when (idx) {
                     0 -> { ParkingStateManager.saveParkingState(this, true, "DEV_LOT_01", "sess_dev_001"); showRegisteredState(); Toast.makeText(this, "Mock 입차 확정", Toast.LENGTH_SHORT).show() }
                     1 -> { ParkingStateManager.saveParkingState(this, false); showRegisteredState(); Toast.makeText(this, "Mock 결제 완료", Toast.LENGTH_SHORT).show() }
-                    2 -> { ParkingStateManager.setRegistered(this, false); recreate() }
-                    3 -> { Thread { MqttManager.connect(vin) }.start(); Toast.makeText(this, "MQTT 재연결 시도", Toast.LENGTH_SHORT).show() }
+                    2 -> { clearRegistrationState(); recreate() }
+                    3 -> {
+                        val carId = ParkingStateManager.getHyundaiCarId(this)
+                        if (carId.isNotBlank()) Thread { MqttManager.connect(carId) }.start()
+                        Toast.makeText(this, "MQTT 재연결 시도", Toast.LENGTH_SHORT).show()
+                    }
                     4 -> Toast.makeText(this, "VIN: $vin", Toast.LENGTH_LONG).show()
                 }
             }
@@ -602,14 +780,29 @@ class MainActivity : AppCompatActivity() {
         androidx.appcompat.app.AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog_Alert)
             .setTitle("⚠ 등록 해제").setMessage("등록된 카드와 차량 정보를 모두 삭제합니다.\n계속하시겠습니까?")
             .setPositiveButton("삭제") { _, _ ->
-                CarPayInService.stop(this); ParkingStateManager.setRegistered(this, false)
-                ParkingStateManager.setOAuthComplete(this, false)
-                ParkingStateManager.saveParkingState(this, false); recreate()
+                clearRegistrationState()
+                recreate()
             }
             .setNegativeButton("취소", null).show()
     }
 
     private fun maskVin(vin: String): String = if (vin.length >= 6) "VIN: ${vin.take(3)}•••${vin.takeLast(3)}" else "VIN: $vin"
+
+    private fun clearRegistrationState() {
+        val token = ParkingStateManager.getAccessToken(this)
+        CarPayInService.stop(this)
+        handler.removeCallbacks(timerRunnable)
+        token?.let {
+            Thread {
+                runCatching { ApiManager.unregister(it) }
+                    .onFailure { android.util.Log.w(TAG, "Server unregister failed: ${it.message}") }
+            }.start()
+        }
+        ParkingStateManager.clearSession(this)
+        TransactionStore.clear(this)
+        approachingLotId = null
+        navigatingLotId = null
+    }
 
     private fun hasCompletedCardRegistration(): Boolean {
         if (!ParkingStateManager.isRegistered(this)) return false

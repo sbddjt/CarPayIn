@@ -40,6 +40,7 @@ class RegistrationActivity : Activity() {
     private val POLL_TIMEOUT_MS = 5 * 60 * 1000L
     private var pollStartTime = 0L
     private var didCompleteLogin = false
+    private var didHideQrAfterAuth = false
     private var pollCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,6 +66,9 @@ class RegistrationActivity : Activity() {
             isPolling = false
             handler.removeCallbacksAndMessages(null)
             loginSessionId = UUID.randomUUID().toString()
+            ivQrCode.visibility = View.VISIBLE
+            btnRefreshQr.visibility = View.VISIBLE
+            btnCancel.visibility = View.VISIBLE
             ivQrCode.setImageBitmap(null)
             tvPollingStatus.text = "Scan this QR with MyHyundai"
             tvSubMessage.text = "Log in with your MyHyundai account to link a vehicle."
@@ -104,6 +108,7 @@ class RegistrationActivity : Activity() {
     private fun startPolling() {
         isPolling = true
         didCompleteLogin = false
+        didHideQrAfterAuth = false
         pollCount = 0
         pollStartTime = System.currentTimeMillis()
         scheduleNextPoll()
@@ -128,6 +133,20 @@ class RegistrationActivity : Activity() {
                 val result = ApiManager.checkLoginSession(loginSessionId)
                 if (result.isComplete) {
                     handler.post { onLoginComplete(result) }
+                } else if (result.status == "authorized" || result.status == "agreement_required") {
+                    handler.post {
+                        showAuthorizedProgress(result.status)
+                        scheduleNextPoll()
+                    }
+                } else if (result.status == "error" || result.status == "agreement_error") {
+                    handler.post {
+                        isPolling = false
+                        showAuthorizedProgress(result.status)
+                        tvPollingStatus.text = "MyHyundai processing failed"
+                        tvSubMessage.text = result.debugMessage.ifBlank { "Refresh the QR and try again." }
+                        btnRefreshQr.visibility = View.VISIBLE
+                        btnCancel.visibility = View.VISIBLE
+                    }
                 } else {
                     handler.post {
                         pollCount += 1
@@ -159,41 +178,62 @@ class RegistrationActivity : Activity() {
         btnCancel.visibility = View.GONE
         btnRefreshQr.visibility = View.GONE
         tvPollingStatus.text = "MyHyundai login complete"
-        tvSubMessage.text = "Select the Hyundai vehicle to link with this car."
+        tvSubMessage.text = "Linking the vehicle selected in MyHyundai."
 
-        val vehicles = result.vinList.filter { it.carId.isNotBlank() }
-        if (vehicles.isEmpty()) {
-            didCompleteLogin = false
-            btnRefreshQr.visibility = View.VISIBLE
-            btnCancel.visibility = View.VISIBLE
-            tvPollingStatus.text = "No Hyundai vehicle found"
-            tvSubMessage.text = "This MyHyundai account did not return a vehicle to link."
-        } else if (vehicles.size > 1) {
-            showVehiclePicker(result, vehicles)
+        val linkedVehicles = result.vehicleList.filter { it.carId.isNotBlank() }
+        when {
+            linkedVehicles.isEmpty() -> {
+                didCompleteLogin = false
+                btnRefreshQr.visibility = View.VISIBLE
+                btnCancel.visibility = View.VISIBLE
+                tvPollingStatus.text = "No Hyundai vehicle found"
+                tvSubMessage.text = "No linked vehicle was returned. Check the backend vehicle-list log."
+            }
+            linkedVehicles.size == 1 -> {
+                completeRegistration(result, linkedVehicles.first())
+            }
+            else -> {
+                showVehiclePicker(result, linkedVehicles)
+            }
+        }
+    }
+
+    private fun showAuthorizedProgress(status: String = "authorized") {
+        if (!didHideQrAfterAuth) {
+            didHideQrAfterAuth = true
+            ivQrCode.visibility = View.GONE
+            btnRefreshQr.visibility = View.GONE
+            btnCancel.visibility = View.GONE
+        }
+        tvPollingStatus.text = "MyHyundai login complete"
+        tvSubMessage.text = if (status == "agreement_required") {
+            "Waiting for Hyundai data agreement..."
         } else {
-            completeRegistration(result, vehicles.firstOrNull())
+            "Fetching Hyundai vehicle list..."
         }
     }
 
     private fun showVehiclePicker(
         result: ApiManager.SessionStatusResult,
-        vehicles: List<ApiManager.VinInfo>
+        vehicles: List<ApiManager.VehicleInfo>
     ) {
         val labels = vehicles.map { vehicleLabel(it) }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Select Hyundai vehicle")
+            .setTitle("CarPayIn에 연결할 차량")
             .setItems(labels) { _, which ->
                 completeRegistration(result, vehicles[which])
             }
             .setOnCancelListener {
                 didCompleteLogin = false
+                btnRefreshQr.visibility = View.VISIBLE
+                btnCancel.visibility = View.VISIBLE
                 tvPollingStatus.text = "Vehicle selection required"
-                tvSubMessage.text = "Choose a vehicle from your MyHyundai account to continue."
+                tvSubMessage.text = "Choose the Hyundai vehicle to link with this car."
             }
             .show()
     }
 
-    private fun vehicleLabel(vehicle: ApiManager.VinInfo): String {
+    private fun vehicleLabel(vehicle: ApiManager.VehicleInfo): String {
         val model = vehicle.modelName.ifBlank { "Hyundai vehicle" }
         val year = if (vehicle.year > 0) " (${vehicle.year})" else ""
         val idTail = vehicle.carId.takeLast(6)
@@ -202,9 +242,10 @@ class RegistrationActivity : Activity() {
 
     private fun completeRegistration(
         result: ApiManager.SessionStatusResult,
-        selectedVehicle: ApiManager.VinInfo?
+        selectedVehicle: ApiManager.VehicleInfo?
     ) {
         val selectedModel = selectedVehicle?.modelName?.ifBlank { result.modelName } ?: result.modelName
+        val selectedCarId = selectedVehicle?.carId.orEmpty()
 
         runCatching {
             if (result.accessToken.isNotBlank() && result.refreshToken.isNotBlank()) {
@@ -213,7 +254,7 @@ class RegistrationActivity : Activity() {
             if (result.plateNumber.isNotBlank()) {
                 ParkingStateManager.savePlateNumber(this, result.plateNumber)
             }
-            ParkingStateManager.saveHyundaiUserInfo(this, result.userId, result.userName, selectedModel)
+            ParkingStateManager.saveHyundaiUserInfo(this, result.userId, result.userName, selectedModel, selectedCarId)
             ParkingStateManager.setOAuthComplete(this, true)
             ParkingStateManager.setRegistered(this, false)
         }.onFailure {
@@ -222,15 +263,12 @@ class RegistrationActivity : Activity() {
             ParkingStateManager.setRegistered(this, false)
         }
 
-        val selectedCarId = selectedVehicle?.carId.orEmpty()
         if (selectedCarId.isNotEmpty() && result.accessToken.isNotBlank()) {
             Thread {
                 runCatching {
-                    ApiManager.confirmVin(
-                        vin = vin,
+                    ApiManager.confirmCar(
+                        vinHash = sha256(vin + loginSessionId),
                         carId = selectedCarId,
-                        modelName = selectedVehicle?.modelName.orEmpty(),
-                        year = selectedVehicle?.year ?: 0,
                         accessToken = result.accessToken
                     )
                 }.onFailure {

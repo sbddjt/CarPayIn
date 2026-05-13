@@ -2,17 +2,15 @@ from pydantic import BaseModel
 
 # ── 인증 ───────────────────────────────────────────────────────────────────
 
-class ConfirmVinRequest(BaseModel):
-    """AAOS 앱 → 마이현대 OAuth 완료 후 최종 VIN + car_id 확정"""
-    vin: str
+class ConfirmCarRequest(BaseModel):
+    """AAOS app confirms the selected Hyundai carId with the session VIN hash."""
+    vin_hash: str
     car_id: str
-    model_name: str = ""
-    year: int = 0
 
 # ── 입차 ───────────────────────────────────────────────────────────────────
 
 class PreNotifyRequest(BaseModel):
-    vin: str
+    car_id: str
     plate: str
     lot_id: str
     trigger: str = "geofence"   # geofence | navi

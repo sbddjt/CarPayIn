@@ -157,12 +157,14 @@ object ParkingStateManager {
         context: Context,
         userId: String,
         userName: String,
-        modelName: String
+        modelName: String,
+        carId: String = ""
     ) {
         getPrefs(context).edit()
             .putString("hyundai_user_id", userId)
             .putString("hyundai_user_name", userName)
             .putString("hyundai_model_name", modelName)
+            .putString("hyundai_car_id", carId)
             .apply()
         Log.d(TAG, "마이현대 사용자 저장: $userName / $modelName")
     }
@@ -175,6 +177,9 @@ object ParkingStateManager {
 
     fun getHyundaiModelName(context: Context): String =
         getPrefs(context).getString("hyundai_model_name", "") ?: ""
+
+    fun getHyundaiCarId(context: Context): String =
+        getPrefs(context).getString("hyundai_car_id", "") ?: ""
 
     // ── 세션 완전 초기화 (리프레시 토큰 만료 시 재로그인 유도) ──────────────
     /**
@@ -191,6 +196,10 @@ object ParkingStateManager {
             .remove("card_last_four")
             .remove("card_brand")
             .remove("plate_number")
+            .remove("hyundai_user_id")
+            .remove("hyundai_user_name")
+            .remove("hyundai_model_name")
+            .remove("hyundai_car_id")
             .remove("parked")
             .remove("lot_id")
             .remove("session_id")

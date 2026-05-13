@@ -14,7 +14,7 @@ import sqlite3, uuid, httpx, os, json, threading
 from contextlib import contextmanager
 import paho.mqtt.client as mqtt
 
-BACKEND_URL = os.environ.get("BACKEND_URL",  "http://localhost:8000")
+BACKEND_URL = os.environ.get("BACKEND_URL",  "http://localhost:8002")
 MQTT_HOST   = os.environ.get("MQTT_HOST",    "localhost")
 MQTT_PORT   = int(os.environ.get("MQTT_PORT", "1883"))
 DB_PATH     = "pms.db"

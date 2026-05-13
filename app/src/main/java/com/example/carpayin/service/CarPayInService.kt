@@ -36,7 +36,7 @@ class CarPayInService : Service() {
 
     private val TAG = "CarPayInService"
     private val handler = Handler(Looper.getMainLooper())
-    private var vin: String = ""
+    private var carId: String = ""
     private var isRunning = false
 
     companion object {
@@ -73,10 +73,10 @@ class CarPayInService : Service() {
 
     private val mqttWatchRunnable = object : Runnable {
         override fun run() {
-            if (!MqttManager.isConnected() && vin.isNotEmpty()) {
+            if (!MqttManager.isConnected() && carId.isNotEmpty()) {
                 Log.d(TAG, "MQTT 재연결 시도...")
                 Thread {
-                    MqttManager.connect(vin)
+                    MqttManager.connect(carId)
                     handler.post { onConnectionChanged?.invoke(MqttManager.isConnected()) }
                 }.start()
             }
@@ -94,21 +94,19 @@ class CarPayInService : Service() {
         isRunning = true
 
         val notif = buildServiceNotif("CarPayIn 주차 감시 중")
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-            } else {
-                startForeground(NOTIF_SERVICE, notif)
-            }
-        } catch (e: SecurityException) {
-            // 위치 권한 미승인 시 (에뮬레이터 첫 실행 등) → 위치 타입 없이 포그라운드 유지
-            Log.w(TAG, "위치 권한 없음 → 기본 포그라운드로 시작: ${e.message}")
-            startForeground(NOTIF_SERVICE, notif)
+        val foregroundOk = startForegroundSafely(notif)
+        if (!foregroundOk) {
+            // 어떤 형태로도 포그라운드 진입에 실패했다면 더는 진행하지 않는다.
+            // (서비스를 그대로 두면 Android 12+ 에서 ANR/크래시가 발생할 수 있음)
+            Log.e(TAG, "포그라운드 진입 실패 → 서비스 종료. UI 는 정상 동작 유지")
+            isRunning = false   // 권한 부여 후 재시도 가능하도록 플래그 복구
+            stopSelf()
+            return START_NOT_STICKY
         }
         Log.d(TAG, "서비스 시작")
 
         VehicleDataManager.init(this)
-        vin = VehicleDataManager.readVin(this)
+        carId = ParkingStateManager.getHyundaiCarId(this)
 
         setupCallbacks()
 
@@ -125,7 +123,7 @@ class CarPayInService : Service() {
         }.start()
 
         Thread {
-            MqttManager.connect(vin)
+            if (carId.isNotEmpty()) MqttManager.connect(carId)
             handler.post { onConnectionChanged?.invoke(MqttManager.isConnected()) }
         }.start()
 
@@ -141,6 +139,35 @@ class CarPayInService : Service() {
         }
 
         return START_STICKY
+    }
+
+    /**
+     * Android 14(targetSdk 34) 부터 foregroundServiceType="location" 인 서비스를
+     *  위치 권한 없이 시작하면 SecurityException 뿐 아니라
+     *  MissingForegroundServiceTypeException / ForegroundServiceStartNotAllowedException
+     *  같은 RuntimeException 이 발생해 앱이 그대로 종료된다.
+     *
+     * → 단계적으로 폴백을 시도하고, 어떠한 Throwable 도 호출자에게 던지지 않는다.
+     *   반환값: 포그라운드 진입에 성공했으면 true.
+     */
+    private fun startForegroundSafely(notif: Notification): Boolean {
+        // 1차: 매니페스트에 선언된 location 타입으로 시도
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                startForeground(NOTIF_SERVICE, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+                return true
+            } catch (t: Throwable) {
+                Log.w(TAG, "location 타입 포그라운드 실패 → fallback: ${t.javaClass.simpleName} ${t.message}")
+            }
+        }
+        // 2차: 타입 없이 (구 API 또는 타입 매칭 실패 시)
+        try {
+            startForeground(NOTIF_SERVICE, notif)
+            return true
+        } catch (t: Throwable) {
+            Log.e(TAG, "기본 포그라운드도 실패: ${t.javaClass.simpleName} ${t.message}")
+        }
+        return false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -193,10 +220,11 @@ class CarPayInService : Service() {
         GeofenceManager.onParkingLotApproach = geofence@{ lotId, lotName, triggerType ->
             handler.post { onLotApproaching?.invoke(lotId, lotName) }
             val plate = ParkingStateManager.getPlateNumber(this) ?: return@geofence
+            val carId = ParkingStateManager.getHyundaiCarId(this).ifBlank { return@geofence }
             val token = getValidToken() ?: return@geofence
             Thread {
                 runCatching {
-                    ApiManager.sendPreNotification(vin, plate, lotId, triggerType, token)
+                    ApiManager.sendPreNotification(carId, plate, lotId, triggerType, token)
                     Log.d(TAG, "사전 알림 전송 완료: $lotId ($triggerType)")
                 }.onFailure {
                     Log.e(TAG, "사전 알림 실패: ${it.message}")

@@ -14,20 +14,35 @@
         android:gravity="center_vertical"
         android:background="@drawable/bg_header_soft">
 
-        <!-- ← 처음으로 버튼: 명시적 배경 + 최소 터치 영역 확보 -->
+        <!-- ⌂ 처음으로: 어느 단계에서든 곧바로 메인 화면(로그인됨/카드 미등록)으로 복귀 -->
         <TextView
             android:id="@+id/btnCancelCard"
             android:layout_width="wrap_content"
             android:layout_height="56dp"
             android:gravity="center"
-            android:text="← 처음으로"
+            android:text="⌂ 처음으로"
             android:textColor="#A8D8C0"
             android:textSize="13sp"
             android:paddingStart="16dp"
-            android:paddingEnd="12dp"
+            android:paddingEnd="10dp"
             android:background="@drawable/bg_header_soft"
             android:clickable="true"
             android:focusable="true"/>
+
+        <!-- ← 이전: 직전 단계로 한 단계 되돌아감 (1단계에서는 숨김) -->
+        <TextView
+            android:id="@+id/btnPrevStep"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:text="← 이전"
+            android:textColor="#A8D8C0"
+            android:textSize="13sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone"/>
 
         <!-- 중간 타이틀 (남은 공간 채움) -->
         <TextView
