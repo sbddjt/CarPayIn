@@ -1,13 +1,13 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from contextlib import asynccontextmanager
-import uuid, time, hashlib, hmac as hmac_lib, json, base64
+import uuid, time, hashlib, hmac as hmac_lib, json, base64, asyncio
 from datetime import datetime
 from urllib.parse import urlencode, quote
 import httpx
 from pydantic import BaseModel
 
-from database import init_db, get_conn, token_expires_at, refresh_expires_at
+from database import init_db, get_conn, token_expires_at, refresh_expires_at, cleanup_expired_records
 from models import (
     ConfirmCarRequest,
     PreNotifyRequest, EntryWebhookRequest,
@@ -73,13 +73,30 @@ def _vehicle_items(payload):
     return []
 
 
+async def _cleanup_expired_records_loop():
+    while True:
+        await asyncio.sleep(300)
+        try:
+            cleanup_expired_records()
+        except Exception as e:
+            print(f"[DB 정리] 실패: {e}")
+
+
 # ── 앱 시작 ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     mqtt_service.start()
+    cleanup_task = asyncio.create_task(_cleanup_expired_records_loop())
     print("[백엔드] CarPayIn Backend Server 시작 (기본 포트 8002)")
-    yield
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title="CarPayIn Backend",
@@ -111,6 +128,37 @@ def _debug_message(value, limit: int = 700) -> str:
     return text[:limit]
 
 
+def _short(value, keep: int = 8) -> str:
+    text = str(value or "")
+    if not text:
+        return "none"
+    return text if len(text) <= keep else f"{text[:keep]}..."
+
+
+def _mask_secret(value, head: int = 8, tail: int = 4) -> str:
+    text = str(value or "")
+    if not text:
+        return "none"
+    if len(text) <= head + tail:
+        return f"{text[:head]}..."
+    return f"{text[:head]}...{text[-tail:]}"
+
+
+def _log_value(value, limit: int = 500) -> str:
+    if isinstance(value, (dict, list, tuple)):
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    else:
+        text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _flow_log(flow: str, step: str, **fields):
+    suffix = ""
+    if fields:
+        suffix = " | " + " ".join(f"{key}={_log_value(value)}" for key, value in fields.items())
+    print(f"[{flow}] {step}{suffix}")
+
+
 def _set_login_session_status(session_id: str, status: str, debug_message: str = ""):
     if not session_id:
         return
@@ -119,6 +167,8 @@ def _set_login_session_status(session_id: str, status: str, debug_message: str =
             "UPDATE login_sessions SET status=?, debug_message=? WHERE session_id=?",
             (status, _debug_message(debug_message), session_id)
         )
+    _flow_log("로그인", "세션 상태 저장", session=_short(session_id), status=status, debug_message=_debug_message(debug_message))
+
 
 
 def _resolve_oauth_state(state: str | None) -> str:
@@ -147,7 +197,7 @@ def _resolve_oauth_state(state: str | None) -> str:
         and latest_pending["session_id"] != state
         and (not current or (current["status"] or "") in ("complete", "error", "agreement_error"))
     ):
-        print(f"[Hyundai OAuth] remapping stale state {state or 'none'} -> {latest_pending['session_id']}")
+        _flow_log("로그인", "오래된 state를 최신 대기 세션으로 매핑", old_state=_short(state), new_state=_short(latest_pending["session_id"]))
         return latest_pending["session_id"]
     return state or ""
 
@@ -160,20 +210,31 @@ async def hyundai_start(request: Request, session_id: str, vin_hash: str = ""):
     QR URL에 평문 VIN을 노출하지 않기 위해 해시값만 전달.
     """
     now = datetime.now().isoformat()
+    public_base_url = _public_base_url(request)
+    _flow_log(
+        "로그인",
+        "QR 시작 요청 수신",
+        session=_short(session_id),
+        vin_hash=_short(vin_hash, 12),
+        client_host=request.client.host if request.client else "unknown",
+        public_base=public_base_url,
+    )
     with get_conn() as con:
         con.execute("""
             INSERT OR REPLACE INTO login_sessions
                 (session_id, vin_hash, status, created_at)
             VALUES (?, ?, 'pending', ?)
         """, (session_id, vin_hash, now))
+    _flow_log("로그인", "대기 세션 저장", session=_short(session_id), status="pending", created_at=now)
 
     params = urlencode({
         "client_id":     HYUNDAI_CLIENT_ID,
-        "redirect_uri":  f"{_public_base_url(request)}/auth/redirect",
+        "redirect_uri":  f"{public_base_url}/auth/redirect",
         "response_type": "code",
         "scope":         "openid profile",
         "state":         session_id,
     })
+    _flow_log("로그인", "현대 OAuth로 이동", session=_short(session_id), redirect_uri=f"{public_base_url}/auth/redirect")
     print(f"[QR 시작] session={session_id[:8]}… vin_hash={vin_hash[:12] if vin_hash else '없음'}…")
     return RedirectResponse(f"{HYUNDAI_AUTH_URL}?{params}")
 
@@ -190,8 +251,17 @@ def session_status(session_id: str):
         ).fetchone()
 
     if not row:
+        _flow_log("로그인상태", "조회 결과 없음", session=_short(session_id))
         return {"status": "pending"}
     if row["status"] != "complete":
+        if (row["status"] or "pending") != "pending":
+            _flow_log(
+                "로그인상태",
+                "처리중 상태 응답",
+                session=_short(session_id),
+                status=row["status"] or "pending",
+                debug_message=row["debug_message"] if "debug_message" in row.keys() else "",
+            )
         return {
             "status": row["status"] or "pending",
             "debug_message": row["debug_message"] if "debug_message" in row.keys() else "",
@@ -218,6 +288,15 @@ def session_status(session_id: str):
         if vrow:
             card_last_four = vrow["card_last_four"] or "0000"
             card_brand     = vrow["card_brand"]     or "현대카드"
+
+    _flow_log(
+        "로그인상태",
+        "완료 상태 응답",
+        session=_short(session_id),
+        selected_car_id=_short(selected_car_id),
+        vehicles=len(vin_list),
+        card=f"{card_brand} ****{card_last_four}",
+    )
 
     return {
         "status":         "complete",
@@ -253,6 +332,12 @@ async def _exchange_hyundai_account_code(code: str, redirect_uri: str) -> dict:
             },
             timeout=10.0,
         )
+        _flow_log(
+            "현대 OAuth",
+            "토큰 교환 응답",
+            status=token_res.status_code,
+            error_body=_debug_message(token_res.text, 300) if token_res.status_code != 200 else "",
+        )
         if token_res.status_code != 200:
             raise HTTPException(502, f"Hyundai token failed ({token_res.status_code}): {token_res.text}")
 
@@ -264,6 +349,13 @@ async def _exchange_hyundai_account_code(code: str, redirect_uri: str) -> dict:
             timeout=10.0,
         )
         user_info = userinfo_res.json() if userinfo_res.status_code == 200 else {}
+        _flow_log(
+            "현대 OAuth",
+            "사용자 정보 응답",
+            status=userinfo_res.status_code,
+            user_id=_short(user_info.get("id", "")),
+            user_name=user_info.get("name", ""),
+        )
         return {
             "hyundai_access_token": hyundai_access,
             "hyundai_refresh_token": token_data.get("refresh_token", ""),
@@ -292,7 +384,9 @@ async def _fetch_hyundai_vehicle_list(hyundai_access: str) -> list:
             "nickname": _first_present(v, "carNickname", "nickName", "nickname"),
             "car_type": _first_present(v, "carType", "type"),
         })
-    return [v for v in vin_list if v["car_id"]]
+    parsed = [v for v in vin_list if v["car_id"]]
+    _flow_log("현대 Data", "차량 목록 파싱", count=len(parsed), vehicles=parsed)
+    return parsed
 
 
 def _agreement_autopost_html(hyundai_access: str, state: str) -> str:
@@ -324,6 +418,14 @@ async def _complete_hyundai_data_agreement(state: str, user_id: str = "") -> dic
     if not hyundai_access:
         raise HTTPException(400, "missing Hyundai access token")
 
+    _flow_log(
+        "현대 Data",
+        "동의 완료 처리 시작",
+        session=_short(state),
+        callback_user_id=_short(user_id),
+        saved_user_id=_short(row["user_id"]),
+        access_token=_mask_secret(hyundai_access),
+    )
     vin_list = await _fetch_hyundai_vehicle_list(hyundai_access)
     access_token = f"at_{uuid.uuid4().hex}"
     refresh_token = f"rt_{uuid.uuid4().hex}"
@@ -352,6 +454,16 @@ async def _complete_hyundai_data_agreement(state: str, user_id: str = "") -> dic
             VALUES (?, ?, '', ?, ?, ?, ?)
         """, (access_token, refresh_token, user_id or row["user_id"], now, token_expires_at(), refresh_expires_at()))
 
+    _flow_log(
+        "현대 Data",
+        "로그인 완료 저장",
+        session=_short(state),
+        app_access_token=_mask_secret(access_token),
+        hyundai_user_id=_short(user_id or row["user_id"]),
+        vehicles=len(vin_list),
+        model_name=model_name,
+        issued_at=now,
+    )
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -378,18 +490,31 @@ async def hyundai_auth_redirect(
     OAuth 교환 완료 후 login_sessions 테이블을 'complete' 로 업데이트
     → AAOS 앱 폴링이 이를 감지하고 자동으로 연동 완료 처리
     """
-    state = _resolve_oauth_state(state or request.query_params.get("?state"))
+    raw_state = state or request.query_params.get("?state")
+    state = _resolve_oauth_state(raw_state)
     agreement_user_id = userId or useId or request.query_params.get("userId") or request.query_params.get("useId")
+    _flow_log(
+        "현대 OAuth",
+        "콜백 수신",
+        path=request.url.path,
+        raw_state=_short(raw_state),
+        resolved_state=_short(state),
+        code=_short(code),
+        agreement_user_id=_short(agreement_user_id),
+        err_code=errCode or "",
+        error=error or "",
+    )
     if agreement_user_id or errCode or request.url.path in ("/data/redirect", "/auth/data-agreement/redirect"):
         if errCode:
             _set_login_session_status(state or "", "agreement_error", f"{errCode}: {errMsg or ''}")
+            _flow_log("현대 Data", "동의 콜백 오류", session=_short(state), err_code=errCode, err_msg=errMsg or "")
             return HTMLResponse(f"<h3>Hyundai data agreement failed</h3><p>{errCode}: {errMsg or ''}</p>", status_code=400)
 
         try:
             if not state:
                 raise HTTPException(400, "missing Hyundai data agreement state")
             result = await _complete_hyundai_data_agreement(state, agreement_user_id or "")
-            print(f"[Hyundai Data Agreement] complete session={state[:8] if state else 'none'} cars={len(result['vin_list'])}")
+            _flow_log("현대 Data", "동의 콜백 처리 완료", session=_short(state), vehicles=len(result["vin_list"]))
             return HTMLResponse("""
                 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
                 <body style="font-family:sans-serif;text-align:center;padding:60px 20px">
@@ -411,12 +536,13 @@ async def hyundai_auth_redirect(
             """)
 
     if error:
-        print(f"[현대 OAuth] 로그인 오류: {error}")
+        _flow_log("현대 OAuth", "로그인 오류 수신", session=_short(state), error=error)
         return HTMLResponse(f"<h3>로그인 실패: {error}</h3>", status_code=400)
     if not code:
+        _flow_log("현대 OAuth", "Authorization code 누락", session=_short(state))
         return HTMLResponse("<h3>Authorization Code 없음</h3>", status_code=400)
 
-    print(f"[현대 OAuth] /auth/redirect — code={code[:8]}… session={state[:8] if state else '없음'}…")
+    _flow_log("현대 OAuth", "Authorization code 수신", session=_short(state), code=_short(code))
 
     try:
         if state:
@@ -430,13 +556,18 @@ async def hyundai_auth_redirect(
                 ).fetchone()
                 if row:
                     vin_hash = row["vin_hash"] or ""
+        _flow_log("현대 OAuth", "세션 조회 완료", session=_short(state), vin_hash=_short(vin_hash, 12))
 
         redirect_uri = f"{_public_base_url(request)}/auth/redirect"
+        _flow_log("현대 OAuth", "토큰 교환 시작", session=_short(state), redirect_uri=redirect_uri)
         account = await _exchange_hyundai_account_code(code, redirect_uri)
         access_token = account["hyundai_access_token"]
         refresh_token = account["hyundai_refresh_token"]
         user_id = account.get("user_id", "")
         user_name = account.get("user_name", "")
+        issued_at = datetime.now().isoformat()
+        hyundai_access_expires_at = token_expires_at()
+        hyundai_refresh_expires_at = refresh_expires_at()
         if state:
             with get_conn() as con:
                 con.execute("""
@@ -448,10 +579,29 @@ async def hyundai_auth_redirect(
                 """, (access_token, refresh_token, user_id, user_name, state))
                 con.execute("""
                     INSERT OR REPLACE INTO hyundai_tokens
-                        (hyundai_user_id, car_id, hyundai_access_token, hyundai_refresh_token, issued_at)
-                    VALUES (?, '', ?, ?, ?)
-                """, (user_id, access_token, refresh_token, datetime.now().isoformat()))
-        print(f"[Hyundai OAuth] token issued session={state[:8] if state else 'none'}; opening data agreement")
+                        (hyundai_user_id, car_id, hyundai_access_token, hyundai_refresh_token,
+                         issued_at, access_expires_at, refresh_expires_at)
+                    VALUES (?, '', ?, ?, ?, ?, ?)
+                """, (
+                    user_id,
+                    access_token,
+                    refresh_token,
+                    issued_at,
+                    hyundai_access_expires_at,
+                    hyundai_refresh_expires_at,
+                ))
+        _flow_log(
+            "현대 OAuth",
+            "현대 토큰/사용자 저장",
+            session=_short(state),
+            hyundai_user_id=_short(user_id),
+            user_name=user_name,
+            access_token=_mask_secret(access_token),
+            refresh_token=_mask_secret(refresh_token),
+            access_expires_at=hyundai_access_expires_at,
+            refresh_expires_at=hyundai_refresh_expires_at,
+            next_step="data_agreement",
+        )
         return HTMLResponse(_agreement_autopost_html(access_token, state or ""))
     except Exception as e:
         import traceback
@@ -480,7 +630,7 @@ async def _read_callback_body(request: Request):
 @app.post("/data/callback", tags=["마이현대 OAuth"])
 async def hyundai_data_callback(request: Request):
     body = await _read_callback_body(request)
-    print(f"[Hyundai Data Callback] query={dict(request.query_params)} body={body}")
+    _flow_log("현대 Data", "콜백 수신", query=dict(request.query_params), body=body)
     return {"status": "ok"}
 
 
@@ -489,6 +639,14 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
     ctx = _token_context(request)
     access_token = ctx["access_token"]
     now = datetime.now().isoformat()
+    _flow_log(
+        "차량매핑",
+        "확정 요청 수신",
+        car_id=_short(req.car_id),
+        vin_hash=_short(req.vin_hash, 12),
+        token_car_id=_short(ctx["car_id"]),
+        hyundai_user_id=_short(ctx["hyundai_user_id"]),
+    )
 
     with get_conn() as con:
         session = con.execute(
@@ -496,10 +654,25 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
             (access_token,)
         ).fetchone()
         if not session:
+            _flow_log("차량매핑", "세션 조회 실패", access_token=_mask_secret(access_token))
             raise HTTPException(404, "login_session_not_found")
 
         expected_hash = session["vin_hash"] or ""
+        _flow_log(
+            "차량매핑",
+            "로그인 세션 조회",
+            session=_short(session["session_id"]),
+            expected_vin_hash=_short(expected_hash, 12),
+            vehicles_json_bytes=len(session["vin_list_json"] or ""),
+        )
         if expected_hash and req.vin_hash != expected_hash:
+            _flow_log(
+                "차량매핑",
+                "VIN hash 불일치",
+                session=_short(session["session_id"]),
+                expected=_short(expected_hash, 12),
+                received=_short(req.vin_hash, 12),
+            )
             raise HTTPException(409, "vin_hash_mismatch")
 
         try:
@@ -508,11 +681,20 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
             vehicles = []
         selected = next((v for v in vehicles if v.get("car_id") == req.car_id), None)
         if not selected:
+            _flow_log("차량매핑", "현대 차량 목록에서 car_id 없음", requested_car_id=_short(req.car_id), candidates=len(vehicles))
             raise HTTPException(404, "car_id_not_in_hyundai_list")
 
         model_name = selected.get("model_name", "") or session["model_name"] or ""
         year = int(selected.get("year") or 0)
         user_id = session["user_id"] or ctx["hyundai_user_id"]
+        _flow_log(
+            "차량매핑",
+            "선택 차량 확인",
+            car_id=_short(req.car_id),
+            model_name=model_name,
+            year=year,
+            user_id=_short(user_id),
+        )
 
         existing = con.execute(
             "SELECT car_id FROM vehicles WHERE car_id=?",
@@ -524,9 +706,10 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
                     hyundai_user_id=?,
                     model_name=COALESCE(NULLIF(?, ''), model_name),
                     year=CASE WHEN ? > 0 THEN ? ELSE year END,
-                    vin_hash=COALESCE(NULLIF(?, ''), vin_hash)
+                    vin_hash=''
                 WHERE car_id=?
-            """, (user_id, model_name, year, year, req.vin_hash, req.car_id))
+            """, (user_id, model_name, year, year, req.car_id))
+            vehicle_save_mode = "update"
         else:
             con.execute("""
                 INSERT INTO vehicles
@@ -534,14 +717,15 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
                      card_last_four, card_brand,
                      registered_at, hyundai_user_id, model_name, year, vin_hash)
                 VALUES (?, '', '', '', '0000', '', ?, ?, ?, ?, ?)
-            """, (req.car_id, now, user_id, model_name, year, req.vin_hash))
+            """, (req.car_id, now, user_id, model_name, year, ""))
+            vehicle_save_mode = "insert"
 
         con.execute(
             "UPDATE tokens SET car_id=?, hyundai_user_id=? WHERE access_token=?",
             (req.car_id, user_id, access_token)
         )
         con.execute(
-            "UPDATE login_sessions SET selected_car_id=?, model_name=? WHERE session_id=?",
+            "UPDATE login_sessions SET selected_car_id=?, model_name=?, vin_hash='' WHERE session_id=?",
             (req.car_id, model_name, session["session_id"])
         )
         if user_id:
@@ -549,8 +733,20 @@ def confirm_car(request: Request, req: ConfirmCarRequest):
                 "UPDATE hyundai_tokens SET car_id=? WHERE hyundai_user_id=?",
                 (req.car_id, user_id)
             )
+        _flow_log(
+            "차량매핑",
+            "DB 저장 완료",
+            vehicle=vehicle_save_mode,
+            car_id=_short(req.car_id),
+            model_name=model_name,
+            year=year,
+            token_mapped="yes",
+            login_session=_short(session["session_id"]),
+            hyundai_token_mapped="yes" if user_id else "no_user_id",
+            vin_hash_cleared="yes",
+        )
 
-    print(f"[차량 확정] car_id={req.car_id} hash={req.vin_hash[:12]}...")
+    _flow_log("차량매핑", "확정 응답", car_id=_short(req.car_id), vin_hash=_short(req.vin_hash, 12))
     return {"status": "ok", "car_id": req.car_id}
 
 
@@ -608,6 +804,9 @@ def refresh_token(request_body: dict):
     # 리프레시 토큰 만료 체크
     r_expires = row["refresh_expires_at"] or ""
     if r_expires and datetime.now().isoformat() > r_expires:
+        with get_conn() as con:
+            con.execute("DELETE FROM tokens WHERE refresh_token=?", (refresh,))
+        _flow_log("토큰", "만료된 refresh token 삭제", car_id=_short(row["car_id"]))
         raise HTTPException(401, "refresh_expired")
 
     new_access  = f"at_{uuid.uuid4().hex}"
@@ -690,14 +889,24 @@ def create_card_order(request: Request, req: CardOrderRequest):
         raise HTTPException(status_code=400, detail="차량 번호를 입력해야 합니다.")
 
     car_id = _car_id_from_token(request)
+    _flow_log(
+        "카드매핑",
+        "카드 주문 요청 수신",
+        car_id=_short(car_id),
+        plate=req.plate,
+        bank_name=req.bank_name or "none",
+        agree_terms=req.agree_terms,
+    )
 
     with get_conn() as con:
         row = con.execute("SELECT car_id FROM vehicles WHERE car_id=?", (car_id,)).fetchone()
         if not row:
+            _flow_log("카드매핑", "차량 조회 실패", car_id=_short(car_id))
             raise HTTPException(404, "등록되지 않은 car_id — OAuth 먼저 완료하세요")
 
         # 2. 번호판 업데이트 (결제창 띄우기 직전에 확정 저장)
         con.execute("UPDATE vehicles SET plate=? WHERE car_id=?", (req.plate, car_id))
+        _flow_log("카드매핑", "차량 번호 저장", car_id=_short(car_id), plate=req.plate)
 
         # 3. 오더 ID 생성 및 DB 저장
         order_id = uuid.uuid4().hex[:20]
@@ -706,6 +915,7 @@ def create_card_order(request: Request, req: CardOrderRequest):
             "INSERT OR REPLACE INTO card_orders (order_id, car_id, created_at) VALUES (?, ?, ?)",
             (order_id, car_id, now)
         )
+        _flow_log("카드매핑", "카드 주문 저장", order_id=_short(order_id), car_id=_short(car_id), created_at=now)
 
     # 4. PG URL 생성
     pg_url = f"{MOCK_PG_URL}/card-register?order_id={order_id}"
@@ -714,7 +924,7 @@ def create_card_order(request: Request, req: CardOrderRequest):
         encoded_bank = quote(req.bank_name)
         pg_url += f"&card_brand={encoded_bank}"
 
-    print(f"[카드주문 준비완료] car_id={car_id} plate={req.plate} order={order_id[:8]}")
+    _flow_log("카드매핑", "PG URL 발급", order_id=_short(order_id), car_id=_short(car_id), pg_url=pg_url)
 
     return {
         "status": "ready",
@@ -731,9 +941,11 @@ def create_card_order_legacy(request: Request):
     서버를 재시작하지 않은 상태나 구버전 앱이 섞여도 PG URL 발급은 가능하게 둔다.
     """
     car_id = _car_id_from_token(request)
+    _flow_log("카드매핑", "구버전 카드 주문 요청 수신", car_id=_short(car_id))
     with get_conn() as con:
         row = con.execute("SELECT car_id FROM vehicles WHERE car_id=?", (car_id,)).fetchone()
         if not row:
+            _flow_log("카드매핑", "구버전 차량 조회 실패", car_id=_short(car_id))
             raise HTTPException(404, "등록되지 않은 car_id — OAuth 먼저 완료하세요")
 
         order_id = uuid.uuid4().hex[:20]
@@ -742,9 +954,10 @@ def create_card_order_legacy(request: Request):
             "INSERT OR REPLACE INTO card_orders (order_id, car_id, created_at) VALUES (?, ?, ?)",
             (order_id, car_id, now)
         )
+        _flow_log("카드매핑", "구버전 카드 주문 저장", order_id=_short(order_id), car_id=_short(car_id), created_at=now)
 
     pg_url = f"{MOCK_PG_URL}/card-register?order_id={order_id}"
-    print(f"[카드주문 호환] car_id={car_id} order={order_id[:8]}")
+    _flow_log("카드매핑", "구버전 PG URL 발급", order_id=_short(order_id), car_id=_short(car_id), pg_url=pg_url)
     return {"status": "ready", "order_id": order_id, "pg_url": pg_url}
 
 @app.post("/webhook/card", tags=["카드 등록"])
@@ -759,6 +972,14 @@ async def card_webhook(request: Request):
     card_brand    = data.get("card_brand", "")
     last_four     = data.get("last_four", "")
     received_hmac = data.get("hmac", "")
+    _flow_log(
+        "카드웹훅",
+        "PG 웹훅 수신",
+        order_id=_short(order_id),
+        customer_key=_mask_secret(customer_key),
+        card=f"{card_brand} ****{last_four}",
+        hmac_present=bool(received_hmac),
+    )
 
     # HMAC 검증
     hmac_payload = {
@@ -770,8 +991,9 @@ async def card_webhook(request: Request):
     payload_str = json.dumps(hmac_payload, sort_keys=True, separators=(',', ':'))
     expected = hmac_lib.new(HMAC_SECRET.encode(), payload_str.encode(), hashlib.sha256).hexdigest()
     if not hmac_lib.compare_digest(expected, received_hmac):
-        print(f"[카드웹훅] HMAC 불일치 — order_id={order_id[:8]}…")
+        _flow_log("카드웹훅", "HMAC 검증 실패", order_id=_short(order_id), expected=_short(expected, 12), received=_short(received_hmac, 12))
         raise HTTPException(403, "HMAC 검증 실패")
+    _flow_log("카드웹훅", "HMAC 검증 성공", order_id=_short(order_id))
 
     # order_id -> car_id lookup
     with get_conn() as con:
@@ -779,21 +1001,33 @@ async def card_webhook(request: Request):
             "SELECT car_id FROM card_orders WHERE order_id=?", (order_id,)
         ).fetchone()
     if not row:
+        _flow_log("카드웹훅", "주문 매핑 조회 실패", order_id=_short(order_id))
         raise HTTPException(404, f"유효하지 않은 order_id: {order_id[:8]}…")
 
     car_id            = row["car_id"]
     payment_method_id = f"pm_{customer_key[:12]}"
+    _flow_log("카드웹훅", "주문 매핑 조회", order_id=_short(order_id), car_id=_short(car_id), payment_method_id=payment_method_id)
 
     with get_conn() as con:
-        con.execute("""
+        result = con.execute("""
             UPDATE vehicles SET
                 customer_key=?, payment_method_id=?,
                 card_last_four=?, card_brand=?
             WHERE car_id=?
         """, (customer_key, payment_method_id, last_four, card_brand, car_id))
         con.execute("DELETE FROM card_orders WHERE order_id=?", (order_id,))
+        _flow_log(
+            "카드웹훅",
+            "카드 정보 저장",
+            car_id=_short(car_id),
+            customer_key=_mask_secret(customer_key),
+            payment_method_id=payment_method_id,
+            card=f"{card_brand} ****{last_four}",
+            updated_rows=result.rowcount,
+            order_deleted=_short(order_id),
+        )
 
-    print(f"[카드등록 완료] car_id={car_id} card=****{last_four} ({card_brand})")
+    _flow_log("카드웹훅", "처리 완료 응답", car_id=_short(car_id), payment_method_id=payment_method_id)
     return {"status": "ok", "car_id": car_id, "payment_method_id": payment_method_id}
 
 

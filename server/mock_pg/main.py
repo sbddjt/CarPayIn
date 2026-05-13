@@ -27,6 +27,36 @@ app.add_middleware(
 HMAC_SECRET   = "mock_pg_secret_key_carpayin"
 BACKEND_URL   = os.environ.get("BACKEND_URL", "http://localhost:8002")
 
+def _short(value, keep: int = 8) -> str:
+    text = str(value or "")
+    if not text:
+        return "none"
+    return text if len(text) <= keep else f"{text[:keep]}..."
+
+
+def _mask_secret(value, head: int = 8, tail: int = 4) -> str:
+    text = str(value or "")
+    if not text:
+        return "none"
+    if len(text) <= head + tail:
+        return f"{text[:head]}..."
+    return f"{text[:head]}...{text[-tail:]}"
+
+
+def _log_value(value, limit: int = 500) -> str:
+    if isinstance(value, (dict, list, tuple)):
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    else:
+        text = str(value)
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def _flow_log(flow: str, step: str, **fields):
+    suffix = ""
+    if fields:
+        suffix = " | " + " ".join(f"{key}={_log_value(value)}" for key, value in fields.items())
+    print(f"[{flow}] {step}{suffix}")
+
 # ── 카드 등록 HTML 페이지 ───────────────────────────────────────────────────────
 
 CARD_REGISTER_HTML = """<!DOCTYPE html>
@@ -310,6 +340,7 @@ async def card_register_page(order_id: str = "TEST_ORDER", card_brand: str = "")
       - 카드사 선택 칩 숨김 (앱에서 이미 선택했으므로)
     없으면: 기존 전체 UI (카드사 선택 포함)
     """
+    _flow_log("Mock PG 카드등록", "입력 페이지 요청", order_id=_short(order_id), preselected_brand=card_brand or "none")
     html = CARD_REGISTER_HTML.replace("__ORDER_ID__", order_id)
     html = html.replace("__PRESELECT_BRAND__", card_brand)
     return HTMLResponse(content=html)
@@ -323,10 +354,27 @@ async def process_card(
     cvc:         str = Form(...),
     card_brand:  str = Form(...)
 ):
+    _flow_log(
+        "Mock PG 카드등록",
+        "카드 입력값 수신",
+        order_id=_short(order_id),
+        card_brand=card_brand,
+        card_digits=len(card_number),
+        expiry=expiry,
+        cvc_digits=len(cvc),
+    )
     # 카드 원번호는 Mock PG 내부에서만 보관 (실 PG는 HSM 저장)
     customer_key = f"ck_{uuid.uuid4().hex[:16]}"
     billing_key  = f"bk_{uuid.uuid4().hex[:16]}"
     last_four    = card_number[-4:] if len(card_number) >= 4 else "****"
+    _flow_log(
+        "Mock PG 카드등록",
+        "PG 키 생성",
+        order_id=_short(order_id),
+        customer_key=_mask_secret(customer_key),
+        billing_key=_mask_secret(billing_key),
+        card=f"{card_brand} ****{last_four}",
+    )
 
     payload = {
         "order_id":     order_id,
@@ -350,21 +398,32 @@ async def process_card(
         hashlib.sha256
     ).hexdigest()
 
-    print(f"[Mock PG] 카드 등록 완료: {card_brand} ****{last_four} order={order_id[:8]}…")
+    _flow_log("Mock PG 카드등록", "HMAC 생성", order_id=_short(order_id), hmac=_short(sig, 12))
 
     # 백엔드 웹훅 전송 → customer_key DB 저장
     try:
         async with httpx.AsyncClient() as client:
-            await client.post(f"{BACKEND_URL}/webhook/card", json={
+            webhook_payload = {
                 "order_id":     order_id,
                 "customer_key": customer_key,
                 "card_brand":   card_brand,
                 "last_four":    last_four,
                 "hmac":         sig,
-            }, timeout=3.0)
+            }
+            _flow_log(
+                "Mock PG 카드등록",
+                "백엔드 웹훅 전송",
+                backend_url=f"{BACKEND_URL}/webhook/card",
+                order_id=_short(order_id),
+                customer_key=_mask_secret(customer_key),
+                card=f"{card_brand} ****{last_four}",
+            )
+            response = await client.post(f"{BACKEND_URL}/webhook/card", json=webhook_payload, timeout=3.0)
+            _flow_log("Mock PG 카드등록", "백엔드 웹훅 응답", order_id=_short(order_id), status=response.status_code, body=response.text[:300])
     except Exception as e:
-        print(f"[Mock PG] 백엔드 웹훅 실패 (무시): {e}")
+        _flow_log("Mock PG 카드등록", "백엔드 웹훅 실패", order_id=_short(order_id), error=e)
 
+    _flow_log("Mock PG 카드등록", "등록 결과 응답", order_id=_short(order_id), customer_key=_mask_secret(customer_key), card=f"{card_brand} ****{last_four}")
     return JSONResponse({
         "success":      True,
         "order_id":     order_id,
