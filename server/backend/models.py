@@ -6,7 +6,8 @@ class ConfirmVinRequest(BaseModel):
     """AAOS 앱 → 마이현대 OAuth 완료 후 최종 VIN + car_id 확정"""
     vin: str
     car_id: str
-    access_token: str
+    model_name: str = ""
+    year: int = 0
 
 # ── 입차 ───────────────────────────────────────────────────────────────────
 
