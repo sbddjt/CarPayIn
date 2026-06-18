@@ -30,6 +30,12 @@ from controller import Keyboard
 
 timestep = int(robot.getBasicTimeStep())
 
+
+def step_robot():
+    if USING_DRIVER:
+        return robot.step()
+    return robot.step(timestep)
+
 # ── .env 로드 ───────────────────────────────────────────────────────────
 _here = os.path.dirname(os.path.abspath(__file__))
 _env_path = os.path.join(_here, ".env")
@@ -67,7 +73,7 @@ def post_json(url, data):
         url, data=body, headers={"Content-Type": "application/json; charset=utf-8"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=3) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read())
     except Exception as e:
         print(f"[VC] POST 실패 {url}: {e}", flush=True)
@@ -135,7 +141,7 @@ SPEED_STEP = 2.0
 STEER_STEP = 0.5
 
 # ════════════════════════════════════════════════════════════════════════
-while robot.step(timestep) != -1:
+while step_robot() != -1:
     sim_time = robot.getTime()
     dt = timestep / 1000.0
 
