@@ -55,6 +55,7 @@ class SeedResponse(BaseModel):
 
 class ParkingSessionResponse(BaseModel):
     session_id: str
+    lot_id: str
 
 
 # ── endpoint ─────────────────────────────────────────────────────────────────
@@ -185,7 +186,7 @@ def get_parking_session(
 ) -> ParkingSessionResponse:
     row = session.execute(
         text("""
-            SELECT session_id FROM parking_sessions
+            SELECT session_id, lot_id FROM parking_sessions
             WHERE car_id = :car_id AND status = 'active'
             LIMIT 1
         """),
@@ -195,7 +196,7 @@ def get_parking_session(
     if not row:
         raise HTTPException(status_code=404, detail="active session not found")
 
-    return ParkingSessionResponse(session_id=str(row.session_id))
+    return ParkingSessionResponse(session_id=str(row.session_id), lot_id=row.lot_id or "")
 
 @router.post("/seed-card-token")
 def seed_card_token(

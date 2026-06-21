@@ -7,7 +7,7 @@ Create Date: 2026-06-18 00:00:00
 from alembic import op
 
 
-revision = "004_allow_zero_amount_transactions"
+revision = "004_allow_zero_amt"
 down_revision = "003_drop_hyundai_tokens"
 branch_labels = None
 depends_on = None
