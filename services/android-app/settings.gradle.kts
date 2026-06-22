@@ -23,6 +23,9 @@ dependencyResolutionManagement {
         maven {
             url = uri("https://nexus-playground.pleos.ai/repository/maven-releases/")
         }
+        maven {
+            url = uri("https://repo.eclipse.org/content/repositories/paho-releases/")
+        }
     }
 }
 

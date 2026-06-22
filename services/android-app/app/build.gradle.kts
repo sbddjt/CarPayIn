@@ -59,9 +59,10 @@ android {
             buildConfigField("String", "CARPAYIN_BACKEND_BASE_URL", "\"http://10.0.2.2:8000\"")
             buildConfigField("String", "CARPAYIN_QR_BASE_URL", "\"${localConfig("CARPAYIN_QR_BASE_URL", "http://10.0.2.2:8000")}\"")
             buildConfigField("Boolean", "CARPAYIN_EMULATOR_LOCALHOST_REWRITE", "true")
-            // 로컬에서는 IoT Core 미사용 — MqttManager가 connected=false 상태 유지
             buildConfigField("String", "IOT_ENDPOINT", "\"\"")
             buildConfigField("String", "COGNITO_IDENTITY_POOL_ID", "\"\"")
+            // Mosquitto (Docker): 에뮬레이터에서 10.0.2.2 = 호스트 머신
+            buildConfigField("String", "MOSQUITTO_BROKER_URL", "\"tcp://10.0.2.2:1883\"")
         }
         create("aws") {
             dimension = "env"
@@ -70,6 +71,7 @@ android {
             buildConfigField("Boolean", "CARPAYIN_EMULATOR_LOCALHOST_REWRITE", "false")
             buildConfigField("String", "IOT_ENDPOINT", "\"${localConfig("IOT_ENDPOINT", "")}\"")
             buildConfigField("String", "COGNITO_IDENTITY_POOL_ID", "\"${localConfig("COGNITO_IDENTITY_POOL_ID", "")}\"")
+            buildConfigField("String", "MOSQUITTO_BROKER_URL", "\"\"")
         }
     }
 
@@ -94,8 +96,10 @@ dependencies {
     implementation("ai.pleos.playground:Vehicle:2.0.3")
     implementation("ai.pleos.playground:NaviHelper:2.0.3")
     // Android 내장 TTS/STT 사용 (android.speech.tts / android.speech)
-    // AWS IoT Core (입차 확정 / 결제 완료 실시간 푸시)
+    // AWS IoT Core (입차 확정 / 결제 완료 실시간 푸시) — aws 플레이버
     implementation("com.amazonaws:aws-android-sdk-iot:2.81.1")
+    // Mosquitto MQTT (로컬 시뮬레이션) — local 플레이버
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
 
     // EncryptedSharedPreferences (토큰 / 주차 상태 보안 저장)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
