@@ -18,9 +18,12 @@
 
         <ImageView
             android:id="@+id/ivRegistrationLogo"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="gone" />
+            android:layout_width="96dp"
+            android:layout_height="48dp"
+            android:layout_marginBottom="12dp"
+            android:contentDescription="Car Pay In"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_logo_cropped" />
 
         <TextView
             android:layout_width="wrap_content"

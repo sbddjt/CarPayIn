@@ -183,7 +183,7 @@ def get_current_user(
     
     # 부하테스트용 bypass - 테스트 완료 후 반드시 제거
     if os.getenv("LOAD_TEST_MODE", "").strip().lower() == "true":
-        return {"user_id": "load-test-user", "vehicle_id": "load-test-vehicle"}
+        return {"user_id": "load-test-user", "car_id": "load-test-vehicle"}
     #기존 코드
     token = extract_bearer_token(authorization)
     return security_components["app_access_token_validator"].validate_and_extract(token)

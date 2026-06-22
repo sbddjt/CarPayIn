@@ -623,7 +623,13 @@ class MainActivity : AppCompatActivity() {
                 // pre-notify는 내비 성공 여부와 무관하게 즉시 전송
                 val token = ParkingStateManager.getAccessToken(this)
                 if (token != null) {
-                    Thread { runCatching { ApiManager.sendPreNotification(lot.id, token) } }.start()
+                    Thread {
+                        runCatching { ApiManager.sendPreNotification(lot.id, token) }
+                            .onSuccess { Log.d(TAG, "사전 알림 전송 완료: ${lot.id}") }
+                            .onFailure { Log.e(TAG, "사전 알림 실패: ${it.javaClass.simpleName} ${it.message}") }
+                    }.start()
+                } else {
+                    Log.e(TAG, "사전 알림 실패: access token null")
                 }
                 val navStarted = NaviHelper.setDestination(this, lot.lat, lot.lng, lot.name, lot.id)
                 if (navStarted) {

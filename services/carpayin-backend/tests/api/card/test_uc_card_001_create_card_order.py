@@ -21,6 +21,17 @@ VALID_ORDER_ID = "order-abc-001"
 VALID_PG_URL = "https://mock-pg.test/card-register?order_id=order-abc-001"
 
 
+def test_load_test_current_user_uses_car_id(monkeypatch):
+    from app.api.deps import get_current_user
+
+    monkeypatch.setenv("LOAD_TEST_MODE", "true")
+
+    assert get_current_user() == {
+        "user_id": "load-test-user",
+        "car_id": "load-test-vehicle",
+    }
+
+
 # ──────────────────────────────────────────────
 # Stub 클래스
 # ──────────────────────────────────────────────
