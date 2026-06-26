@@ -1,42 +1,42 @@
-# Android App
+# android-app
 
-AAOS/Android client for the Car Pay In local and in-car parking payment flow.
+Car Pay-in AAOS(Android Automotive OS) 차량 앱입니다.
 
-## Responsibilities
+## 담당 기능
 
-- Create QR login sessions and poll login completion.
-- Confirm a Hyundai vehicle and store app tokens locally.
-- Start card registration through the mock PG WebView.
-- Fetch partner parking lots and send parking pre-notifications.
-- Receive parking/payment updates through MQTT.
-- Keep local parking, token, and transaction state on the device.
+- QR 로그인 세션 생성 및 완료 폴링
+- 현대차 차량 확인 및 앱 토큰 로컬 저장
+- Mock PG WebView를 통한 카드 등록
+- 파트너 주차장 조회 및 주차 사전 알림 전송
+- AWS IoT Core MQTT로 입차·결제 알림 수신
+- 차량 내 주차·토큰·거래 상태 로컬 관리
 
-## Structure
+## 폴더 구조
 
-```text
+```
 app/src/main/java/com/example/carpayin/
-  config/       BuildConfig-backed runtime values
-  data/         Local token, parking, and transaction stores
-  network/      Backend API and MQTT clients
-  service/      Foreground service for parking/MQTT state
-  ui/           Main, registration, card registration, and dev UI
-  vehicle/      Vehicle, geofence, and navigation helpers
+  config/       BuildConfig 기반 런타임 설정
+  data/         토큰·주차·거래 로컬 저장소
+  network/      백엔드 API·MQTT 클라이언트
+  service/      주차·MQTT 상태 포그라운드 서비스
+  ui/           메인·등록·카드 등록·개발자 UI
+  vehicle/      차량·지오펜스·내비게이션 헬퍼
 
 app/src/main/res/
-  drawable*/    UI backgrounds, launcher assets, and card logos
-  layout/       XML layouts
-  values/       Colors, strings, and themes
+  drawable*/    UI 배경·런처 에셋·카드 로고
+  layout/       XML 레이아웃
+  values/       색상·문자열·테마
 ```
 
-## Local Configuration
+## 로컬 설정
 
-Copy `local.properties.example` to `local.properties`:
+`local.properties.example`을 복사합니다:
 
 ```powershell
 Copy-Item services\android-app\local.properties.example services\android-app\local.properties
 ```
 
-Local emulator defaults:
+로컬 에뮬레이터 기본값:
 
 ```text
 CARPAYIN_BACKEND_BASE_URL=http://10.0.2.2:8000
@@ -45,59 +45,43 @@ CARPAYIN_MQTT_BROKER_URL=tcp://10.0.2.2:1883
 CARPAYIN_EMULATOR_LOCALHOST_REWRITE=true
 ```
 
-Use a public URL such as ngrok for `CARPAYIN_QR_BASE_URL` when a phone browser
-or Hyundai OAuth callback must reach the backend.
+현대차 OAuth 콜백을 받으려면 `CARPAYIN_QR_BASE_URL`에 ngrok 등 외부 URL을 사용합니다.
 
-## Build
+## 빌드
 
-Compile the debug Kotlin sources:
+디버그 Kotlin 소스 컴파일:
 
 ```powershell
 cd services\android-app
 .\gradlew.bat :app:compileDebugKotlin
 ```
 
-Run unit tests:
+단위 테스트 실행:
 
 ```powershell
 cd services\android-app
 .\gradlew.bat testDebugUnitTest
 ```
 
-## Backend Contract
+## 백엔드 연동 엔드포인트
 
-The app currently uses these backend endpoints:
+```
+POST /auth/qr-session
+GET  /auth/session/{session_id}/status
+POST /auth/confirm-car
+POST /auth/refresh
+POST /card/order
+GET  /parking/lots
+POST /parking/navigate
+GET  /fee/{session_id}
+POST /payment
+```
 
-- `POST /auth/qr-session`
-- `GET /auth/session/{session_id}/status`
-- `POST /auth/confirm-car`
-- `POST /auth/refresh`
-- `POST /card/order`
-- `GET /parking/lots`
-- `POST /parking/navigate`
-- `GET /fee/{session_id}`
-- `POST /payment`
+OpenAPI 명세: `../../docs/api/car-pay-in-openapi.yaml`
 
-`ApiManager.unregister()` is a best-effort cleanup call during local reset.
-The current backend does not expose `POST /auth/unregister`, so local session
-clear remains the real cleanup path until that API is implemented.
+## AWS 플레이버 (실기기 / 시연)
 
-The shared OpenAPI contract lives at `../../docs/api/car-pay-in-openapi.yaml`.
-
-## Local Flow
-
-1. Start the root Docker Compose stack.
-2. Set `PUBLIC_BASE_URL` and Android `CARPAYIN_QR_BASE_URL` to the public URL
-   that can receive the OAuth callback.
-3. Compile and launch the Android app.
-4. Start registration, scan or open the QR URL, finish Hyundai OAuth, and let
-   the app poll `/auth/session/{session_id}/status`.
-5. Confirm a vehicle, register a card, then use navigation/geofence flows to
-   trigger `/parking/navigate` and payment.
-
-## AWS Flavor (실기기 / 시연)
-
-`aws` 빌드 플레이버는 실 AWS 인프라에 연결됩니다.
+`aws` 빌드 플레이버로 실제 AWS 인프라에 연결합니다:
 
 ```text
 # services/android-app/local.properties (빌드 환경 전용, 커밋 금지)
@@ -112,18 +96,24 @@ MQTT 연결 흐름:
 ```
 앱 시작
   └─ Cognito Identity Pool → 임시 AWS 자격증명 발급
-  └─ AWS IoT Core MQTT 연결 (MQTT over WebSocket / TLS)
+  └─ AWS IoT Core MQTT 연결
   └─ 토픽 구독: car/{car_id}/parking
 
 입차 확인 시
   carpayin-backend → SQS → Lambda → IoT Core publish
-  └─ 앱에 MQTT 메시지 수신 → 입차 완료 알림 표시
+  └─ 앱 MQTT 수신 → 입차 완료 알림 표시
 ```
 
 차량 통신에서 MQTT가 표준 프로토콜이므로, 푸시 알림도 IoT Core MQTT로 통일했습니다.
 
-## Generated Files
+## 로컬 실행 순서
 
-Do not commit local screenshots, view hierarchy dumps, `.gradle/`, build
-outputs, or `local.properties`. The root-level Android screenshots and dump XML
-files are intentionally ignored.
+1. 루트 Docker Compose 스택 실행
+2. `PUBLIC_BASE_URL`과 Android `CARPAYIN_QR_BASE_URL`을 OAuth 콜백을 받을 수 있는 공개 URL로 설정
+3. Android 앱 컴파일 및 실행
+4. QR URL 스캔 또는 열기 → 현대차 OAuth 완료 → 앱이 `/auth/session/{session_id}/status` 폴링
+5. 차량 확인 → 카드 등록 → 내비게이션·지오펜스 흐름으로 `/parking/navigate` 및 결제 트리거
+
+## 커밋 제외 항목
+
+로컬 스크린샷, 뷰 계층 덤프, `.gradle/`, 빌드 결과물, `local.properties`는 커밋하지 않습니다.

@@ -1,77 +1,113 @@
-# Car Pay In
+# Car Pay-in
 
-Car Pay In is a monorepo for the in-vehicle parking payment flow. It contains
-the Android client, the main backend, mock payment/card services, PMS service,
-scenario documents, local Docker Compose, and GitLab Registry deployment tools.
+차량 내 주차 결제 시스템 (In-Vehicle Parking Payment System)
 
-## Repository Layout
+AAOS(Android Automotive OS) 기반 차량 앱에서 QR 로그인 → 차량 확인 → 카드 등록 → 입차 → 요금 결제 → 출차까지 전 과정을 처리하는 서비스입니다.
 
-```text
+---
+
+## 서비스 구성
+
+| 서비스 | 역할 | AWS 배포 방식 |
+|--------|------|--------------|
+| `carpayin-backend` | 메인 API (인증/차량/카드/주차/결제) | ECS Fargate (Multi-AZ) |
+| `pms` | Mock 주차장 관리 시스템 | EC2 + Docker Compose |
+| `mock-pg` | Mock 결제대행사 | EC2 + Docker Compose |
+| `mock-card` | Mock 카드사 | EC2 + Docker Compose |
+| `android-app` | AAOS 차량 앱 (Kotlin) | - |
+| `webots` | 차단기 시뮬레이션 (Ubuntu) | MQTT → AWS IoT Core |
+
+---
+
+## AWS 인프라
+
+| AWS 서비스 | 용도 |
+|-----------|------|
+| ECS Fargate | carpayin-backend 컨테이너 실행 (Multi-AZ) |
+| RDS PostgreSQL | carpayin-backend DB (Multi-AZ, 자동 failover) |
+| ElastiCache Redis | 세션·상태 캐시 (carpayin-redis / pms-redis) |
+| Cognito | QR OAuth 인증, AAOS 앱 IoT Core 연결 (Identity Pool) |
+| SQS | 입차 확인 이벤트 큐 |
+| Lambda | SQS 트리거 → IoT Core 메시지 발행 |
+| IoT Core | AAOS 앱·Webots와 MQTT 통신 (실시간 입차 알림, 차단기 제어) |
+| ECR | 빌드 이미지 저장소 |
+| SSM | EC2 원격 배포 명령 실행 (pms, mock-pg) |
+
+---
+
+## 폴더 구조
+
+```
 services/
-  android-app/        Android client used for local and in-car testing
-  carpayin-backend/   Main API for auth, vehicle, card, parking, and payment
-  mock-card/          Mock card company API
-  mock-pg/            Mock PG API and card registration WebView
-  pms/                Mock parking management system API
-  webots/             Webots vehicle and barrier simulation controllers
+  carpayin-backend/   메인 백엔드 API
+  pms/                Mock 주차장 API
+  mock-pg/            Mock 결제대행사 API
+  mock-card/          Mock 카드사 API
+  android-app/        AAOS Android 앱
 
 docs/
-  api/                OpenAPI contract
-  DB schemas/         Database and Redis schema documents
-  deployment/         Registry, CI/CD, and deployment notes
-  diagrams/           Mermaid sequence diagrams
-  scenarios/          Scenario flow documents
-  use-cases/          Use-case level specifications
+  api/                OpenAPI 스펙 (car-pay-in-openapi.yaml)
+  DB schemas/         DB·Redis 스키마 문서
+  diagrams/           Mermaid 시퀀스 다이어그램
+  use-cases/          유스케이스 명세
+  scenarios/          시나리오 흐름 문서
+  deployment/         AWS 환경변수·배포 가이드
+  conventions/        테스트 작성 컨벤션
 
-scripts/
-  build-push-images.ps1      Local GitLab Registry image build/push helper
-  start-local-full.ps1       Start Docker services and local support setup
-  deploy-from-registry.ps1   Pull registry images and run Docker Compose
-  start-local-e2e.ps1        Start local E2E dependencies
-  stop-local-e2e.ps1         Stop local E2E dependencies
+infra/                Terraform (VPC, ECS, RDS 등)
+infra_ec2/            EC2용 Docker Compose (pms, mock-pg)
+scripts/              로컬 실행·빌드 스크립트
 ```
 
-## Documentation Map
+---
 
-- API contract: `docs/api/car-pay-in-openapi.yaml`
-- Business flow specs: `docs/use-cases/`
-- Presentation/scenario flow: `docs/scenarios/`
-- Mermaid sequence sources: `docs/diagrams/`
-- DB and Redis schemas: `docs/DB schemas/`
-- Testing conventions: `docs/conventions/`
-- Android setup: `services/android-app/README.md`
+## 문서 맵
 
-## Local Configuration
+| 문서 | 경로 |
+|------|------|
+| API 명세 | `docs/api/car-pay-in-openapi.yaml` |
+| DB 스키마 | `docs/DB schemas/` |
+| 시퀀스 다이어그램 | `docs/diagrams/` |
+| 유스케이스 명세 | `docs/use-cases/` |
+| 시나리오 흐름 | `docs/scenarios/` |
+| AWS 환경변수 | `docs/deployment/aws-env.md` |
+| 테스트 컨벤션 | `docs/conventions/` |
+| Android 설정 | `services/android-app/README.md` |
 
-Copy `.env.example` to `.env` and fill local secrets before running real
-Hyundai OAuth.
+---
 
-Required for the main local flow:
+## 로컬 환경 설정
+
+루트 `.env.example`을 복사해 로컬 시크릿을 채웁니다:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+최소 필수 값:
 
 ```text
-PUBLIC_BASE_URL
-HYUNDAI_CLIENT_ID
-HYUNDAI_CLIENT_SECRET
-PG_PUBLIC_BASE_URL
+PUBLIC_BASE_URL         carpayin-backend 공개 URL (ngrok 등)
+HYUNDAI_CLIENT_ID       현대차 OAuth 클라이언트 ID
+HYUNDAI_CLIENT_SECRET   현대차 OAuth 클라이언트 시크릿
+PG_PUBLIC_BASE_URL      mock-pg 공개 URL
 ```
 
-Do not commit `.env` or real credentials.
+Android 앱은 `services/android-app/local.properties`를 별도로 설정합니다.
 
-Android uses `services/android-app/local.properties`. Copy
-`services/android-app/local.properties.example` before compiling or launching
-the app.
+---
 
-## Local Run
+## 로컬 실행
 
-Start the local service stack:
+전체 서비스 스택 실행:
 
 ```powershell
 docker compose up -d --build
 ```
 
-Useful ports:
+로컬 포트:
 
-```text
+```
 8000  carpayin-backend
 8001  pms
 8002  mock-pg
@@ -80,77 +116,57 @@ Useful ports:
 5433  mock-card-postgres
 5434  mock-pg-postgres
 5435  pms-postgres
-6379  redis
+6379  carpayin-redis
+6380  pms-redis
 ```
 
-API docs are available after the stack starts:
+Swagger UI (스택 실행 후):
 
-```text
-http://localhost:8000/docs       carpayin-backend Swagger UI
-http://localhost:8001/docs       PMS Swagger UI
-http://localhost:8002/docs       mock-pg Swagger UI
-http://localhost:8003/docs       mock-card Swagger UI
+```
+http://localhost:8000/docs   carpayin-backend
+http://localhost:8001/docs   pms
+http://localhost:8002/docs   mock-pg
+http://localhost:8003/docs   mock-card
 ```
 
-For a guided local startup script:
+스크립트로 실행:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start-local-full.ps1
 ```
 
-Stop the full local stack:
+---
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\stop-local-full.ps1
-```
+## 테스트
 
-## Tests
-
-Run all Python service unit/API tests:
+전체 Python 서비스 단위·API 테스트 실행:
 
 ```powershell
 make test
 ```
 
-Run one backend test set directly:
+백엔드 테스트만 실행:
 
 ```powershell
 cd services/carpayin-backend
 python -m pytest tests/unit tests/api -q --import-mode=importlib
 ```
 
-Compile the Android app:
+Android 컴파일:
 
 ```powershell
 cd services/android-app
 .\gradlew.bat :app:compileDebugKotlin
 ```
 
-## AWS Infrastructure
-
-| 구성 요소 | 서비스 | 배포 방식 |
-|-----------|--------|-----------|
-| carpayin-backend | ECS Fargate (Multi-AZ) | GitLab CI → ECR → ECS update-service |
-| carpayin DB | RDS PostgreSQL (Multi-AZ, 자동 failover) | - |
-| carpayin Redis | ElastiCache Redis | - |
-| pms | EC2 + Docker Compose | GitLab CI → ECR → SSM send-command |
-| pms DB | PostgreSQL on EC2 | - |
-| mock-pg | EC2 + Docker Compose | GitLab CI → ECR → SSM send-command |
-| mock-pg DB | PostgreSQL on EC2 | - |
-| pms/carpayin Redis | ElastiCache Redis | - |
-| 인증 | AWS Cognito | QR OAuth, AAOS 앱 IoT Core Identity Pool |
-| 푸시 알림 | SQS → Lambda → IoT Core | 입차 확인 이벤트 → AAOS 앱 MQTT |
-| 차단기 시뮬레이션 | Webots (Ubuntu) → IoT Core | MQTT pub/sub |
-| 이미지 저장소 | AWS ECR | GitLab CI build stage |
-| EC2 원격 배포 | AWS SSM | docker compose pull & up |
+---
 
 ## CI/CD
 
-모든 브랜치 push·MR에서 테스트를 실행하고, `main` 브랜치 push 시 서비스 코드
-변경분만 빌드해 AWS에 자동 배포합니다.
+모든 브랜치 push·MR에서 테스트를 실행하고, `main` 브랜치 push 시 서비스 코드 변경분만 빌드해 AWS에 자동 배포합니다.
 
 ```
-test  → 모든 브랜치: Python unit/API 테스트
+test  → 모든 브랜치: Python 단위·API 테스트
 build → main + 서비스 코드 변경: Docker 이미지 빌드 → AWS ECR 푸시
 deploy
   carpayin-backend → ECS update-service (Fargate 롤링 배포)
@@ -158,19 +174,18 @@ deploy
   mock-pg          → EC2 SSM send-command (docker compose up)
 ```
 
-GitLab CI/CD 변수 설정 필요:
+GitLab CI/CD 변수 필수 설정:
 
 ```text
 AWS_REGION
-AWS_ACCOUNT_ID         (또는 IAM role로 자동 조회)
 ECS_CLUSTER
 ECS_SERVICE_CARPAYIN_BACKEND
 MOCKPMS_EC2_INSTANCE_ID
 MOCKPG_EC2_INSTANCE_ID
-MOCKPMS_DATABASE_URL   (Masked)
-MOCKPMS_WEBHOOK_TOKEN  (Masked)
-MOCKPG_DATABASE_URL    (Masked)
-MOCKPG_WEBHOOK_SECRET  (Masked)
+MOCKPMS_DATABASE_URL    (Masked)
+MOCKPMS_WEBHOOK_TOKEN   (Masked)
+MOCKPG_DATABASE_URL     (Masked)
+MOCKPG_WEBHOOK_SECRET   (Masked)
 ```
 
-See `docs/deployment/aws-env.md` for full environment variable reference.
+전체 AWS 환경변수 목록: `docs/deployment/aws-env.md`

@@ -1,91 +1,84 @@
 # carpayin-backend
 
-Main Car Pay In API service.
+Car Pay-in 메인 API 서비스입니다.
 
-## Responsibilities
+## 담당 기능
 
-- QR login session creation and polling
-- Hyundai OAuth callback handling
-- Vehicle confirmation
-- Card registration order creation and PG webhook handling
-- Parking pre-notification and PMS entry webhook handling
-- Parking fee lookup, billing-key payment, and PMS payment notification
+- QR 로그인 세션 생성 및 상태 폴링
+- 현대차 OAuth 콜백 처리
+- 차량 확인 및 등록
+- 카드 등록 주문 생성 및 PG 웹훅 처리
+- 주차 사전 알림 등록 및 PMS 입차 웹훅 처리
+- 주차 요금 조회, 빌링키 결제, PMS 결제 완료 통보
 
-## Structure
+## 폴더 구조
 
-```text
+```
 app/
-  api/            FastAPI routes, schemas, and dependencies
-  application/    Use-case services
-  domain/         Domain concepts and errors
-  infra/          Database, Redis, security, and external clients
-migrations/       Alembic migrations
+  api/            FastAPI 라우터·스키마·의존성
+  application/    유스케이스 서비스
+  domain/         도메인 개념·에러
+  infra/          DB·Redis·보안·외부 클라이언트
+migrations/       Alembic 마이그레이션
 tests/
-  unit/           Use-case and client tests
-  api/            HTTP route tests
-  integration/    Repository and Redis integration tests
+  unit/           유스케이스·클라이언트 단위 테스트
+  api/            HTTP 라우트 테스트
+  integration/    Repository·Redis 통합 테스트
 ```
 
-## Runtime
+## 실행 명령
 
-The container starts with:
+컨테이너 시작 명령:
 
 ```text
 alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Required environment variables are defined in the root `docker-compose.yaml`
-and `.env.example`.
+환경변수는 루트 `docker-compose.yaml`과 `.env.example`에 정의되어 있습니다.
 
-## Local Development
+## 로컬 개발
 
-Install dependencies and run tests from this service directory:
+의존성 설치 및 테스트 실행:
 
 ```powershell
 pip install -r requirements.txt
 python -m pytest tests/unit tests/api -q --import-mode=importlib
 ```
 
-Run the service outside Docker when local Postgres and Redis are already
-available:
+로컬 Postgres·Redis가 실행 중일 때 Docker 없이 서비스 실행:
 
 ```powershell
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Main Endpoints
-
-- `POST /auth/qr-session`
-- `GET /auth/hyundai/start`
-- `GET /auth/redirect`
-- `GET /auth/session/{session_id}/status`
-- `POST /auth/confirm-car`
-- `POST /auth/refresh`
-- `POST /card/order`
-- `POST /card/webhook`
-- `GET /parking/lots`
-- `GET /sim/location`
-- `POST /sim/location`
-- `POST /parking/navigate`
-- `POST /webhook/entry`
-- `GET /fee/{session_id}`
-- `POST /payment`
-
-The source of truth for request and response contracts is
-`../../docs/api/car-pay-in-openapi.yaml`.
-
-## AWS Deployment
-
-carpayin-backend는 AWS ECS Fargate로 배포됩니다.
+## 주요 엔드포인트
 
 ```
-GitLab CI (main branch)
+POST /auth/qr-session
+GET  /auth/hyundai/start
+GET  /auth/redirect
+GET  /auth/session/{session_id}/status
+POST /auth/confirm-car
+POST /auth/refresh
+POST /card/order
+POST /card/webhook
+GET  /parking/lots
+POST /parking/navigate
+POST /webhook/entry
+GET  /fee/{session_id}
+POST /payment
+```
+
+API 명세 원본: `../../docs/api/car-pay-in-openapi.yaml`
+
+## AWS 배포
+
+```
+GitLab CI (main 브랜치)
   └─ build: Docker 이미지 빌드 → AWS ECR 푸시
   └─ deploy: aws ecs update-service --force-new-deployment
 ```
-
-AWS 인프라 구성:
 
 | 컴포넌트 | AWS 서비스 |
 |---------|-----------|

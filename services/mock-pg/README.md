@@ -1,70 +1,67 @@
 # mock-pg
 
-Mock payment gateway service.
+Mock 결제대행사(PG) 서비스입니다.
 
-## Responsibilities
+## 담당 기능
 
-- Serve the local card registration WebView
-- Complete card registration and issue mock billing keys
-- Charge a billing key through `mock-card`
-- Notify `carpayin-backend` through configured webhook URLs
+- 카드 등록 WebView 제공
+- 카드 등록 완료 처리 및 Mock 빌링키 발급
+- 빌링키 기반 결제 요청 처리 (mock-card 연동)
+- carpayin-backend로 웹훅 통보
 
-## Structure
+## 폴더 구조
 
-```text
+```
 app/
-  api/            FastAPI routes, schemas, and dependencies
-  application/    PG card registration and payment use cases
-  infra/          Database, repositories, and external clients
-migrations/       Alembic migrations
-tests/            Unit, API, and integration tests
+  api/            FastAPI 라우터·스키마·의존성
+  application/    PG 카드 등록·결제 유스케이스
+  infra/          DB·Repository·외부 클라이언트
+migrations/       Alembic 마이그레이션
+tests/            단위·API·통합 테스트
 ```
 
-## Runtime
+## 실행 명령
 
-The container starts with:
+컨테이너 시작 명령:
 
 ```text
 alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-## Local Development
+## 로컬 개발
 
-Install dependencies and run tests from this service directory:
+의존성 설치 및 테스트 실행:
 
 ```powershell
 pip install -r requirements.txt
 python -m pytest tests/unit tests/api -q --import-mode=importlib
 ```
 
-Run the service outside Docker when its database and mock-card dependency are
-available:
+DB와 mock-card 의존성이 실행 중일 때 Docker 없이 서비스 실행:
 
 ```powershell
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8002
 ```
 
-## Main Endpoints
-
-- `POST /pg/internal/card-registration/sessions`
-- `GET /pg/card-register`
-- `POST /pg/card-register`
-- `POST /pg/payments/billing`
-
-The API contract is included in `../../docs/api/car-pay-in-openapi.yaml`.
-
-## AWS Deployment
-
-mock-pg는 AWS EC2에서 Docker Compose로 실행됩니다.
+## 주요 엔드포인트
 
 ```
-GitLab CI (main branch)
+POST /pg/internal/card-registration/sessions
+GET  /pg/card-register
+POST /pg/card-register
+POST /pg/payments/billing
+```
+
+API 명세 원본: `../../docs/api/car-pay-in-openapi.yaml`
+
+## AWS 배포
+
+```
+GitLab CI (main 브랜치)
   └─ build: Docker 이미지 빌드 → AWS ECR 푸시
   └─ deploy: AWS SSM send-command → EC2에서 docker compose up
 ```
-
-AWS 인프라 구성:
 
 | 컴포넌트 | 구성 |
 |---------|------|
