@@ -74,3 +74,26 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 The source of truth for request and response contracts is
 `../../docs/api/car-pay-in-openapi.yaml`.
+
+## AWS Deployment
+
+carpayin-backend는 AWS ECS Fargate로 배포됩니다.
+
+```
+GitLab CI (main branch)
+  └─ build: Docker 이미지 빌드 → AWS ECR 푸시
+  └─ deploy: aws ecs update-service --force-new-deployment
+```
+
+AWS 인프라 구성:
+
+| 컴포넌트 | AWS 서비스 |
+|---------|-----------|
+| 컨테이너 실행 | ECS Fargate (Multi-AZ) |
+| 데이터베이스 | RDS PostgreSQL (Multi-AZ, 자동 failover) |
+| 캐시 / 세션 | ElastiCache Redis |
+| OAuth 인증 | AWS Cognito |
+| 입차 이벤트 발행 | SQS → Lambda → IoT Core |
+
+런타임 환경변수는 ECS task definition secrets로 주입합니다.
+전체 환경변수 목록: `../../docs/deployment/aws-env.md`

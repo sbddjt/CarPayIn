@@ -95,6 +95,33 @@ The shared OpenAPI contract lives at `../../docs/api/car-pay-in-openapi.yaml`.
 5. Confirm a vehicle, register a card, then use navigation/geofence flows to
    trigger `/parking/navigate` and payment.
 
+## AWS Flavor (실기기 / 시연)
+
+`aws` 빌드 플레이버는 실 AWS 인프라에 연결됩니다.
+
+```text
+# services/android-app/local.properties (빌드 환경 전용, 커밋 금지)
+CARPAYIN_BACKEND_BASE_URL=https://<carpayin-backend-alb-domain>
+CARPAYIN_QR_BASE_URL=https://<carpayin-backend-alb-domain>
+IOT_ENDPOINT=<aws-iot-data-endpoint>.iot.ap-northeast-2.amazonaws.com
+COGNITO_IDENTITY_POOL_ID=ap-northeast-2:<cognito-identity-pool-id>
+```
+
+MQTT 연결 흐름:
+
+```
+앱 시작
+  └─ Cognito Identity Pool → 임시 AWS 자격증명 발급
+  └─ AWS IoT Core MQTT 연결 (MQTT over WebSocket / TLS)
+  └─ 토픽 구독: car/{car_id}/parking
+
+입차 확인 시
+  carpayin-backend → SQS → Lambda → IoT Core publish
+  └─ 앱에 MQTT 메시지 수신 → 입차 완료 알림 표시
+```
+
+차량 통신에서 MQTT가 표준 프로토콜이므로, 푸시 알림도 IoT Core MQTT로 통일했습니다.
+
 ## Generated Files
 
 Do not commit local screenshots, view hierarchy dumps, `.gradle/`, build

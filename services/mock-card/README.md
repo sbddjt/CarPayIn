@@ -50,3 +50,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8003
 - `POST /cards/charge`
 
 The API contract is included in `../../docs/api/car-pay-in-openapi.yaml`.
+
+## AWS Deployment
+
+mock-card는 EC2에서 Docker Compose로 실행됩니다.
+
+| 컴포넌트 | 구성 |
+|---------|------|
+| 서버 | EC2 (Ubuntu) + Docker Compose |
+| 데이터베이스 | PostgreSQL on EC2 |
+
+mock-card는 내부 서비스이므로 외부 ALB 없이 mock-pg와 VPC 내부 통신합니다.

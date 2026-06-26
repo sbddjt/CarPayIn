@@ -126,19 +126,51 @@ cd services/android-app
 .\gradlew.bat :app:compileDebugKotlin
 ```
 
+## AWS Infrastructure
+
+| 구성 요소 | 서비스 | 배포 방식 |
+|-----------|--------|-----------|
+| carpayin-backend | ECS Fargate (Multi-AZ) | GitLab CI → ECR → ECS update-service |
+| carpayin DB | RDS PostgreSQL (Multi-AZ, 자동 failover) | - |
+| carpayin Redis | ElastiCache Redis | - |
+| pms | EC2 + Docker Compose | GitLab CI → ECR → SSM send-command |
+| pms DB | PostgreSQL on EC2 | - |
+| mock-pg | EC2 + Docker Compose | GitLab CI → ECR → SSM send-command |
+| mock-pg DB | PostgreSQL on EC2 | - |
+| pms/carpayin Redis | ElastiCache Redis | - |
+| 인증 | AWS Cognito | QR OAuth, AAOS 앱 IoT Core Identity Pool |
+| 푸시 알림 | SQS → Lambda → IoT Core | 입차 확인 이벤트 → AAOS 앱 MQTT |
+| 차단기 시뮬레이션 | Webots (Ubuntu) → IoT Core | MQTT pub/sub |
+| 이미지 저장소 | AWS ECR | GitLab CI build stage |
+| EC2 원격 배포 | AWS SSM | docker compose pull & up |
+
 ## CI/CD
 
-Merge requests run a lightweight validation pipeline.
+모든 브랜치 push·MR에서 테스트를 실행하고, `main` 브랜치 push 시 서비스 코드
+변경분만 빌드해 AWS에 자동 배포합니다.
 
-Pushing a semantic version tag builds and pushes runtime images to GitLab
-Container Registry:
-
-```powershell
-git tag 0.0.2
-git push origin 0.0.2
+```
+test  → 모든 브랜치: Python unit/API 테스트
+build → main + 서비스 코드 변경: Docker 이미지 빌드 → AWS ECR 푸시
+deploy
+  carpayin-backend → ECS update-service (Fargate 롤링 배포)
+  pms              → EC2 SSM send-command (docker compose up)
+  mock-pg          → EC2 SSM send-command (docker compose up)
 ```
 
-Images are pushed as both the semantic version tag and `latest`.
+GitLab CI/CD 변수 설정 필요:
 
-See `docs/deployment/gitlab-registry.md` for registry, local runner, and AWS
-pull details.
+```text
+AWS_REGION
+AWS_ACCOUNT_ID         (또는 IAM role로 자동 조회)
+ECS_CLUSTER
+ECS_SERVICE_CARPAYIN_BACKEND
+MOCKPMS_EC2_INSTANCE_ID
+MOCKPG_EC2_INSTANCE_ID
+MOCKPMS_DATABASE_URL   (Masked)
+MOCKPMS_WEBHOOK_TOKEN  (Masked)
+MOCKPG_DATABASE_URL    (Masked)
+MOCKPG_WEBHOOK_SECRET  (Masked)
+```
+
+See `docs/deployment/aws-env.md` for full environment variable reference.
